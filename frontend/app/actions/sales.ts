@@ -1,0 +1,392 @@
+'use server';
+
+import { prisma } from "@/lib/prisma";
+import { ensureDefaultCompany } from "@/lib/company";
+import { revalidatePath } from "next/cache";
+import { backendFetch } from "@/lib/backend-api";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface SalesOrderItem {
+  order: string;
+  dbId: string;
+  customer: string;
+  salesperson: string;
+  date: string;
+  items: number;
+  subtotal: string;
+  tax: string;
+  total: string;
+  payment: string;
+  status: string;
+  delivery: string;
+}
+
+interface BackendSalesOrder {
+  id: string;
+  orderNumber: string;
+  customer?: { name?: string; companyName?: string };
+  salesperson?: { fullName?: string };
+  createdAt: string;
+  items?: Array<{ product?: { name?: string }; quantity?: number; unitPrice?: number; subtotal?: number }>;
+  subtotal: number;
+  tax: number;
+  discount?: number;
+  totalAmount: number;
+  paymentStatus: string;
+  status: string;
+  invoices?: Array<{ invoiceNumber?: string }>;
+}
+
+// ─── Mappers ──────────────────────────────────────────────────────────────────
+
+function mapPaymentStatus(status: string): string {
+  const map: Record<string, string> = {
+    PAID: 'Paid', UNPAID: 'Pending', PARTIAL: 'Pending', OVERDUE: 'Overdue',
+    Paid: 'Paid', Pending: 'Pending', Overdue: 'Overdue',
+  };
+  return map[status] || 'Pending';
+}
+
+function mapOrderStatus(status: string): string {
+  const map: Record<string, string> = {
+    PENDING: 'Confirmed', PROCESSING: 'Processing', SHIPPED: 'Shipping',
+    COMPLETED: 'Completed', CANCELLED: 'Cancelled',
+    Confirmed: 'Confirmed', Processing: 'Processing', Completed: 'Completed',
+    Cancelled: 'Cancelled', Quotation: 'Quotation',
+  };
+  return map[status] || status;
+}
+
+function mapDeliveryStatus(orderStatus: string, deliveryStatus?: string): string {
+  if (deliveryStatus) {
+    const map: Record<string, string> = {
+      Processing: 'Processing', Shipping: 'Shipping', Delivered: 'Delivered',
+    };
+    if (map[deliveryStatus]) return map[deliveryStatus];
+  }
+  const statusMap: Record<string, string> = {
+    PENDING: 'Processing', PROCESSING: 'Shipping', SHIPPED: 'Shipping',
+    COMPLETED: 'Delivered', CANCELLED: 'Processing',
+  };
+  return statusMap[orderStatus] || 'Shipping';
+}
+
+function formatCurrency(value: number): string {
+  return `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 0 })}`;
+}
+
+function formatDate(dateStr: string | Date): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function mapBackendToSalesItem(s: BackendSalesOrder): SalesOrderItem {
+  return {
+    order: s.orderNumber,
+    dbId: s.id,
+    customer: s.customer?.companyName || s.customer?.name || 'Walk-in Customer',
+    salesperson: s.salesperson?.fullName || 'Admin',
+    date: formatDate(s.createdAt),
+    items: s.items?.length ?? 0,
+    subtotal: formatCurrency(s.subtotal || 0),
+    tax: formatCurrency(s.tax || 0),
+    total: formatCurrency(s.totalAmount || 0),
+    payment: mapPaymentStatus(s.paymentStatus),
+    status: mapOrderStatus(s.status),
+    delivery: mapDeliveryStatus(s.status),
+  };
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch all sales orders from Prisma DB with fallback to REST API backend.
+ */
+export async function getSales(): Promise<{ success: boolean; data: SalesOrderItem[]; total?: number }> {
+  try {
+    const company = await ensureDefaultCompany();
+    const sales = await prisma.sale.findMany({
+      where: { companyId: company.id },
+      include: { customer: true, salesperson: true, items: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const mapped: SalesOrderItem[] = sales.map((s) => ({
+      order: s.orderNumber,
+      dbId: s.id,
+      customer: s.customer?.company || s.customer?.name || 'Walk-in Customer',
+      salesperson: s.salesperson?.name || 'Admin',
+      date: formatDate(s.createdAt),
+      items: s.items?.length || 0,
+      subtotal: formatCurrency(s.subtotal || 0),
+      tax: formatCurrency(s.tax || 0),
+      total: formatCurrency(s.total || 0),
+      payment: s.paymentStatus || 'Paid',
+      status: s.status || 'Completed',
+      delivery: s.deliveryStatus || 'Delivered',
+    }));
+
+    if (mapped.length > 0) {
+      return { success: true, data: mapped, total: mapped.length };
+    }
+  } catch (err) {
+    console.warn('[getSales] Prisma error, trying backendFetch fallback:', err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    const res = await backendFetch<BackendSalesOrder[]>('/sales');
+    if (res.success && res.data) {
+      const mapped = res.data.map(mapBackendToSalesItem);
+      return { success: true, data: mapped, total: mapped.length };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { success: true, data: [] };
+}
+
+/**
+ * Fetch sales metrics overview.
+ */
+export async function getSalesMetrics() {
+  try {
+    const salesRes = await getSales();
+    const salesList = salesRes.data || [];
+    const ordersCount = salesList.length;
+    const totalRev = salesList.reduce((acc, s) => {
+      const val = Number(String(s.total || 0).replace(/[^0-9.-]+/g, '')) || 0;
+      return acc + val;
+    }, 0);
+    const paidCount = salesList.filter((s) => s.payment === 'Paid').length;
+    const pendingCount = salesList.filter((s) => s.payment === 'Pending' || s.payment === 'Overdue').length;
+    const completedCount = salesList.filter((s) => s.status === 'Completed').length;
+    const avgVal = ordersCount > 0 ? Math.round(totalRev / ordersCount) : 0;
+
+    const dataObj = {
+      totalRevenue: totalRev,
+      ordersCount,
+      totalOrders: ordersCount,
+      paidCount,
+      pendingCount,
+      completedCount,
+      completedOrders: completedCount,
+      avgOrderValue: avgVal,
+      averageOrderValue: avgVal,
+    };
+
+    return {
+      success: true,
+      data: dataObj,
+      ...dataObj,
+    };
+  } catch (error) {
+    console.error('getSalesMetrics error:', error);
+    const emptyObj = {
+      totalRevenue: 0,
+      ordersCount: 0,
+      totalOrders: 0,
+      paidCount: 0,
+      pendingCount: 0,
+      completedCount: 0,
+      completedOrders: 0,
+      avgOrderValue: 0,
+      averageOrderValue: 0,
+    };
+    return {
+      success: false,
+      data: emptyObj,
+      ...emptyObj,
+    };
+  }
+}
+
+/**
+ * Create a new sales order natively in Prisma PostgreSQL DB.
+ */
+export async function createSalesOrder(data: {
+  orderNumber: string;
+  customerName: string;
+  salesperson?: string;
+  orderDate?: string;
+  totalAmount: number;
+  paymentStatus?: string;
+  status?: string;
+  deliveryStatus?: string;
+}): Promise<{ success: boolean; data?: SalesOrderItem; error?: string }> {
+  try {
+    const company = await ensureDefaultCompany();
+    const orderNo = data.orderNumber || `SO-${Math.floor(10000 + Math.random() * 90000)}`;
+    const totalVal = Number(data.totalAmount) || 0;
+
+    let customer = await prisma.customer.findFirst({
+      where: { companyId: company.id, name: data.customerName },
+    });
+
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: {
+          code: `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+          name: data.customerName,
+          company: data.customerName,
+          email: `${data.customerName.toLowerCase().replace(/\s+/g, '')}@example.com`,
+          phone: '-',
+          city: 'Jakarta',
+          country: 'Indonesia',
+          companyId: company.id,
+        },
+      });
+    }
+
+    const sale = await prisma.sale.create({
+      data: {
+        orderNumber: orderNo,
+        total: totalVal,
+        subtotal: totalVal * 0.9,
+        tax: totalVal * 0.1,
+        customerId: customer.id,
+        companyId: company.id,
+      },
+      include: { customer: true },
+    });
+
+    revalidatePath("/Sales");
+    revalidatePath("/Dashboard");
+
+    return {
+      success: true,
+      data: {
+        order: sale.orderNumber,
+        dbId: sale.id,
+        customer: customer.name,
+        salesperson: 'Admin',
+        date: formatDate(sale.createdAt),
+        items: 1,
+        subtotal: formatCurrency(sale.subtotal),
+        tax: formatCurrency(sale.tax),
+        total: formatCurrency(sale.total),
+        payment: 'Paid',
+        status: 'Completed',
+        delivery: 'Delivered',
+      },
+    };
+  } catch (err) {
+    console.error('createSalesOrder Prisma error:', err);
+    return { success: false, error: 'Failed to create sales order' };
+  }
+}
+
+/**
+ * Process a multi-item POS Cashier Checkout transaction,
+ * deduct product stock in real-time, and log stock movements.
+ */
+export async function createPOSCheckoutOrder(data: {
+  orderNumber: string;
+  customerName: string;
+  paymentMethod: string;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  totalAmount: number;
+  cashTendered: number;
+  changeAmount: number;
+  items: Array<{
+    productId?: string;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+  }>;
+}) {
+  try {
+    const company = await ensureDefaultCompany();
+    const orderNo = data.orderNumber || `POS-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    let customer = await prisma.customer.findFirst({
+      where: { companyId: company.id, name: data.customerName || "Walk-in Customer" },
+    });
+
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: {
+          code: `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+          name: data.customerName || "Walk-in Customer",
+          company: "General Public",
+          email: "walkin@pos.local",
+          phone: "-",
+          city: "Store",
+          country: "Indonesia",
+          companyId: company.id,
+        },
+      });
+    }
+
+    const sale = await prisma.sale.create({
+      data: {
+        orderNumber: orderNo,
+        total: Number(data.totalAmount) || 0,
+        subtotal: Number(data.subtotal) || 0,
+        tax: Number(data.tax) || 0,
+        customerId: customer.id,
+        companyId: company.id,
+      },
+      include: { customer: true },
+    });
+
+    // Deduct stock for each item & log stock movement in real-time
+    for (const item of data.items) {
+      if (item.productId) {
+        try {
+          await prisma.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: {
+                decrement: item.quantity,
+              },
+            },
+          });
+
+          await prisma.stockMovement.create({
+            data: {
+              type: "STOCK_OUT",
+              quantity: item.quantity,
+              notes: `POS Checkout #${orderNo} (${item.quantity}x ${item.productName})`,
+              productId: item.productId,
+              companyId: company.id,
+            },
+          });
+        } catch {
+          // ignore individual item stock update errors if any
+        }
+      }
+    }
+
+    revalidatePath("/Sales");
+    revalidatePath("/ProductInventory");
+    revalidatePath("/Products");
+    revalidatePath("/Dashboard");
+    revalidatePath("/POS");
+
+    return {
+      success: true,
+      data: {
+        order: sale.orderNumber,
+        dbId: sale.id,
+        customer: customer.name,
+        salesperson: "Cashier",
+        date: new Date().toLocaleDateString(),
+        items: data.items.length,
+        subtotal: `$${data.subtotal.toLocaleString()}`,
+        tax: `$${data.tax.toLocaleString()}`,
+        total: `$${data.totalAmount.toLocaleString()}`,
+        payment: "Paid",
+        status: "Completed",
+        delivery: "Delivered",
+      },
+    };
+  } catch (err) {
+    console.error("createPOSCheckoutOrder error:", err);
+    return { success: false, error: "Gagal memproses transaksi kasir POS." };
+  }
+}
