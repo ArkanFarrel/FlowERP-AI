@@ -11,6 +11,7 @@ import {
   Users,
   Zap,
   Store,
+  Wallet,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -46,18 +47,29 @@ export default function Sidebar({ sidebarOpen, onLogout }: SidebarProps) {
 
   const userRole = (user.role || 'OWNER').toUpperCase() as Role;
 
-  const rawSidebarItems = [
-    { icon: BarChart3, label: "Dashboard", path: "/Dashboard", permission: "view:dashboard" },
-    { icon: Store, label: "POS Terminal", path: "/POS", permission: "create:sales" },
-    { icon: Package, label: "Products", path: "/Products", permission: "view:products" },
-    { icon: ShoppingCart, label: "Inventory", path: "/ProductInventory", permission: "view:inventory" },
-    { icon: TrendingUp, label: "Sales", path: "/Sales", permission: "view:sales" },
-    { icon: Users, label: "Customers", path: "/Customers", permission: "view:customers" },
-    { icon: Package, label: "Suppliers", path: "/Suppliers", permission: "view:suppliers" },
-    { icon: FileText, label: "Purchases", path: "/Purchases", permission: "create:purchases" },
-    { icon: BarChart3, label: "Reports", path: "/ReportsPage", permission: "view:reports" },
-    { icon: Zap, label: "AI Insights", path: "/AI-Insights", permission: "ai:insights" },
-  ];
+const rawSidebarItems = [
+  { icon: BarChart3, label: "Dashboard", path: "/Dashboard", permission: "view:dashboard" },
+
+  // Sales
+  { icon: Store, label: "POS Terminal", path: "/POS", permission: "create:sales" },
+  { icon: TrendingUp, label: "Sales", path: "/Sales", permission: "view:sales" },
+  { icon: Users, label: "Customers", path: "/Customers", permission: "view:customers" },
+
+  // Inventory
+  { icon: Package, label: "Products", path: "/Products", permission: "view:products" },
+  { icon: ShoppingCart, label: "Inventory", path: "/ProductInventory", permission: "view:inventory" },
+
+  // Purchasing
+  { icon: Package, label: "Suppliers", path: "/Suppliers", permission: "view:suppliers" },
+  { icon: FileText, label: "Purchases", path: "/Purchases", permission: "create:purchases" },
+
+  // Finance & Reports
+  { icon: Wallet, label: "Finance", path: "/Finance", permission: "view:reports" },
+  { icon: BarChart3, label: "Reports", path: "/ReportsPage", permission: "view:reports" },
+
+  // Intelligence
+  { icon: Zap, label: "AI Insights", path: "/AI-Insights", permission: "ai:insights" },
+];
 
   const sidebarItems = rawSidebarItems.filter((item) => {
     if (userRole === 'OWNER') return true;

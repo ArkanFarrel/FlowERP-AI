@@ -2,7 +2,6 @@
 import Sidebar from '@/components/ui/layout/sidebar';
 import Topbar from '@/components/ui/layout/topbar';
 import React, { useState } from 'react';
-// import { apiFetch } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import {
   FileText,

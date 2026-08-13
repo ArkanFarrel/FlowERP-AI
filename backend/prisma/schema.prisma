@@ -70,6 +70,7 @@ model Company {
   movements   StockMovement[]
   invoices    Invoice[]
   aiLogs      AiLog[]
+  payments    Payment[]
 
   @@map("companies")
 }
@@ -205,6 +206,7 @@ model SalesOrder {
   totalAmount   Float
   paymentStatus String        @default("UNPAID")
   status        String        @default("PENDING")
+  dueDate       DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -213,6 +215,7 @@ model SalesOrder {
   salesperson   User          @relation(fields: [salespersonId], references: [id])
   items         SalesItem[]
   invoices      Invoice[]
+  payments      Payment[]
 
   @@unique([companyId, orderNumber])
   @@index([companyId, status])
@@ -234,22 +237,25 @@ model SalesItem {
 }
 
 model PurchaseOrder {
-  id          String         @id @default(uuid())
-  companyId   String
-  poNumber    String
-  supplierId  String
-  createdById String
-  subtotal    Float
-  tax         Float          @default(0.0)
-  totalAmount Float
-  status      String         @default("PENDING")
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id            String         @id @default(uuid())
+  companyId     String
+  poNumber      String
+  supplierId    String
+  createdById   String
+  subtotal      Float
+  tax           Float          @default(0.0)
+  totalAmount   Float
+  paymentStatus String         @default("UNPAID")
+  status        String         @default("PENDING")
+  dueDate       DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  supplier    Supplier       @relation(fields: [supplierId], references: [id])
-  createdBy   User           @relation(fields: [createdById], references: [id])
-  items       PurchaseItem[]
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  createdBy     User           @relation(fields: [createdById], references: [id])
+  items         PurchaseItem[]
+  payments      Payment[]
 
   @@unique([companyId, poNumber])
   @@index([companyId, status])
@@ -316,4 +322,32 @@ model AiLog {
 
   @@index([companyId])
   @@map("ai_logs")
+}
+
+// ─── AR/AP Payment Tracking ──────────────────────────────────────────────────
+
+model Payment {
+  id              String         @id @default(uuid())
+  companyId       String
+  referenceNumber String         // e.g. "PAY-20240101-001"
+  type            String         // "RECEIVABLE" | "PAYABLE"
+  // For AR: linked to SalesOrder
+  salesOrderId    String?
+  // For AP: linked to PurchaseOrder
+  purchaseOrderId String?
+  amount          Float          // amount paid in this installment
+  method          String         @default("Bank Transfer") // "Cash" | "Bank Transfer" | "Cheque" | etc.
+  notes           String?
+  paymentDate     DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesOrder      SalesOrder?    @relation(fields: [salesOrderId], references: [id])
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([companyId, type])
+  @@index([companyId, salesOrderId])
+  @@index([companyId, purchaseOrderId])
+  @@map("payments")
 }

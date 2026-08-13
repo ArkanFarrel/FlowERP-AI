@@ -23,6 +23,7 @@ import purchaseRoutes from './modules/purchase/purchase.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import reportRoutes from './modules/report/report.routes.js';
 import aiRoutes from './modules/ai/ai.routes.js';
+import financeRoutes from './modules/finance/finance.routes.js';
 
 export const createApp = (): Express => {
   const app: Express = express();
@@ -74,6 +75,7 @@ export const createApp = (): Express => {
   app.use(`${prefix}/dashboard`, dashboardRoutes);
   app.use(`${prefix}/reports`, reportRoutes);
   app.use(`${prefix}/ai`, aiRoutes);
+  app.use(`${prefix}/finance`, financeRoutes);
 
   // Base API Route
   app.get(`${prefix}`, (_req: Request, res: Response) => {
