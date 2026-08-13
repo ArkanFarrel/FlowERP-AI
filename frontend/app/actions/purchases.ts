@@ -221,3 +221,118 @@ export async function updatePurchaseStatus(id: string, newStatus: "Ordered" | "P
     return { success: false, error: "Failed to update PO status" };
   }
 }
+
+export async function generateDraftPOFromAI(productId: string, quantity?: number, supplierId?: string) {
+  try {
+    const company = await ensureDefaultCompany();
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      include: { supplier: true },
+    });
+
+    if (!product || product.companyId !== company.id) {
+      return { success: false, error: "Produk tidak ditemukan dalam database perusahaan Anda." };
+    }
+
+    // Determine target supplier
+    let targetSupplierId = supplierId || product.supplierId;
+    let supplier = null;
+
+    if (targetSupplierId) {
+      supplier = await prisma.supplier.findUnique({
+        where: { id: targetSupplierId },
+      });
+    }
+
+    // Fallback: find any supplier for this company
+    if (!supplier) {
+      supplier = await prisma.supplier.findFirst({
+        where: { companyId: company.id },
+      });
+    }
+
+    if (!supplier) {
+      return {
+        success: false,
+        error: "Supplier tidak ditemukan. Silakan buat supplier terlebih dahulu di menu Suppliers.",
+      };
+    }
+
+    const restockQty = quantity && quantity > 0
+      ? quantity
+      : Math.max((product.minStock || 15) * 2, 50);
+
+    const unitCost = product.costPrice || 0;
+    const totalAmount = restockQty * unitCost;
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const poNumber = `PO-${dateStr}-${randomSuffix}`;
+
+    const purchase = await prisma.purchase.create({
+      data: {
+        poNumber,
+        supplierId: supplier.id,
+        totalAmount,
+        status: PurchaseStatus.Ordered,
+        companyId: company.id,
+        items: {
+          create: [
+            {
+              productId: product.id,
+              quantity: restockQty,
+              unitCost,
+              totalCost: totalAmount,
+            },
+          ],
+        },
+      },
+      include: {
+        supplier: true,
+        items: { include: { product: true } },
+      },
+    });
+
+    // Create notification entry for tracking
+    try {
+      await prisma.notification.create({
+        data: {
+          companyId: company.id,
+          title: "🤖 Draft PO AI Dibuat",
+          message: `Draft PO ${poNumber} sebanyak ${restockQty} unit ${product.name} ke ${supplier.company || supplier.name} telah dibuat secara otomatis dari rekomendasi AI Advisor.`,
+          type: "info",
+        },
+      });
+    } catch {
+      // ignore notification creation error
+    }
+
+    revalidatePath("/Purchases");
+    revalidatePath("/AI-Insights");
+    revalidatePath("/ProductInventory");
+    revalidatePath("/Products");
+    revalidatePath("/Suppliers");
+
+    return {
+      success: true,
+      data: {
+        poNumber: purchase.poNumber,
+        poId: purchase.id,
+        productName: product.name,
+        supplierName: supplier.company || supplier.name,
+        quantity: restockQty,
+        unitCost,
+        totalAmount,
+      },
+      message: `Draft PO ${purchase.poNumber} berhasil dibuat untuk ${restockQty} unit ${product.name} ke ${supplier.company || supplier.name}!`,
+    };
+  } catch (error: unknown) {
+    console.error("generateDraftPOFromAI error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Gagal membuat Draft PO dari AI.",
+    };
+  }
+}
+

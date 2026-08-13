@@ -14,10 +14,35 @@ import {
   Bot,
   AlertTriangle,
   CircleCheck,
+  ShoppingCart,
+  CheckCircle2,
+  FileText,
+  ArrowRight,
+  Clock,
+  AlertOctagon,
+  Layers,
 } from "lucide-react";
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent} from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Loader2 } from "lucide-react";
+
+interface ReplenishmentItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  currentStock: number;
+  minimumStock: number;
+  costPrice: number;
+  salesVelocity30Days: number;
+  dailyVelocity: number;
+  estimatedDaysRemaining: number;
+  suggestedRestockQuantity: number;
+  supplierId?: string;
+  supplierName: string;
+  urgency: "Critical" | "High" | "Dead Stock" | "Optimal";
+  recommendationText: string;
+}
+
 export default function InsightPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isDark, setIsDark] = useState(false);
@@ -25,6 +50,20 @@ export default function InsightPage() {
   const [promptInput, setPromptInput] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // AI Replenishment Advisor States
+  const [generatingPoId, setGeneratingPoId] = useState<string | null>(null);
+  const [advisorFilter, setAdvisorFilter] = useState<"all" | "reorder" | "deadstock">("all");
+  const [replenishmentItems, setReplenishmentItems] = useState<ReplenishmentItem[]>([]);
+  const [poSuccessModal, setPoSuccessModal] = useState<{
+    isOpen: boolean;
+    poNumber: string;
+    productName: string;
+    supplierName: string;
+    quantity: number;
+    totalAmount: number;
+    message: string;
+  } | null>(null);
 
   const [insightsData, setInsightsData] = useState<{
     businessScore: number;
@@ -44,16 +83,20 @@ export default function InsightPage() {
     minimumStock: number;
     estimatedDaysRemaining: number;
     suggestedRestockQuantity: number;
+    supplierName?: string;
+    supplierId?: string;
     urgency: string;
+    recommendationText?: string;
   }>>([]);
 
   const [dbData, setDbData] = useState<{
     demandPredictions?: Array<{ product: string; demand: string; confidence: string; trend: string }>;
-    recommendations?: Array<{ priority: string; color: string; title: string; subtitle?: string; saving?: string; actionText: string }>;
+    recommendations?: Array<{ priority: string; color: string; title: string; subtitle?: string; saving?: string; actionText: string; productId?: string; suggestedRestockQuantity?: number; supplierId?: string }>;
     dbActivities?: Array<{ id: string; title: string; time: string; type: string }>;
     healthBreakdown?: { sales: string; inventory: string; purchasing: string; customers: string; finance: string; summaryText: string };
     salesReportData?: Array<{ month: string; revenue: number }>;
     counts?: { productsCount: number; salesCount: number; customersCount: number; suppliersCount: number; purchasesCount: number; totalRevenue: number; totalPurchases: number };
+    replenishmentSummary?: { criticalCount: number; deadStockCount: number; totalProducts: number };
   }>({});
 
   const [isLoading, setIsLoading] = useState(false);
@@ -67,6 +110,7 @@ export default function InsightPage() {
       if (res.success && res.data) {
         if (res.data.insightsData) setInsightsData(res.data.insightsData);
         if (res.data.predictionsData) setPredictionsData(res.data.predictionsData);
+        if (res.data.replenishmentAdvisor) setReplenishmentItems(res.data.replenishmentAdvisor);
         setDbData(res.data);
       }
     } catch (err) {
@@ -80,6 +124,34 @@ export default function InsightPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchInsightsData();
   }, []);
+
+  const handleGenerateDraftPO = async (productId: string, quantity?: number, supplierId?: string) => {
+    setGeneratingPoId(productId);
+    try {
+      const { generateDraftPOFromAI } = await import('@/app/actions/purchases');
+      const res = await generateDraftPOFromAI(productId, quantity, supplierId);
+      if (res.success && res.data) {
+        setPoSuccessModal({
+          isOpen: true,
+          poNumber: res.data.poNumber,
+          productName: res.data.productName,
+          supplierName: res.data.supplierName,
+          quantity: res.data.quantity,
+          totalAmount: res.data.totalAmount,
+          message: res.message || `Draft PO ${res.data.poNumber} telah berhasil dibuat!`,
+        });
+        await fetchInsightsData();
+      } else {
+        alert(res.error || 'Gagal membuat Draft PO.');
+      }
+    } catch (err: unknown) {
+      console.error('Generate Draft PO error:', err);
+      alert('Terjadi kesalahan saat membuat Draft PO.');
+    } finally {
+      setGeneratingPoId(null);
+    }
+  };
+
 
   const handleSendPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -317,62 +389,249 @@ export default function InsightPage() {
               </div>
 
               {/* Inventory Optimization */}
+              {/* 🤖 AI Reorder & Smart Replenishment Advisor */}
               <div className="mt-6">
-                <Card>
-                  <h3 className="text-lg font-semibold">Inventory Optimization</h3>
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-slate-500">
-                        <tr>
-                          <th className="text-left py-2">Product Name</th>
-                          <th className="text-left py-2">Current Stock</th>
-                          <th className="text-left py-2">Est. Days Left (Velocity)</th>
-                          <th className="text-left py-2">Suggested Restock</th>
-                          <th className="text-left py-2">Urgency Level</th>
-                          <th className="text-left py-2">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {predictionsData && predictionsData.length > 0 ? (
-                          predictionsData.map((p) => (
-                            <tr key={p.productId} className="align-top">
-                              <td className="py-3 font-medium">
-                                <div>{p.productName}</div>
-                                <div className="text-[11px] text-slate-400 font-mono">{p.sku}</div>
-                              </td>
-                              <td className="py-3 font-bold">{p.currentStock} pcs</td>
-                              <td className="py-3">
-                                <span className={`font-semibold ${p.estimatedDaysRemaining <= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                                  {p.estimatedDaysRemaining <= 30 ? `~${p.estimatedDaysRemaining} Hari` : '> 30 Hari'}
-                                </span>
-                              </td>
-                              <td className="py-3 text-sky-600 dark:text-sky-400 font-semibold">+{p.suggestedRestockQuantity} pcs</td>
-                              <td className="py-3">
-                                <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                  p.urgency === 'Critical' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200' :
-                                  p.urgency === 'High' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200' :
-                                  'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200'
-                                }`}>
-                                  {p.urgency}
-                                </span>
-                              </td>
-                              <td className="py-3">
-                                <button onClick={() => router.push('/ProductInventory')} className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow-xs transition">
-                                  Adjust Stock
+                <Card className="border-sky-200/80 dark:border-sky-900/50 shadow-md">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-sky-600 text-white rounded-xl shadow-sky-500/20 shadow-md">
+                        <Bot size={24} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                            🤖 AI Reorder & Smart Replenishment Advisor
+                          </h3>
+                          <span className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-sky-200 dark:border-sky-800">
+                            Sales Velocity Engine 30 Hari
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Analisis otomatis kecepatan penjualan 30 hari terakhir untuk mencegah keterlambatan re-order barang populer dan penumpukan stok mati (Dead Stock).
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Filter Tabs */}
+                    <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-lg self-start md:self-auto text-xs font-medium">
+                      <button
+                        onClick={() => setAdvisorFilter("all")}
+                        className={`px-3 py-1.5 rounded-md transition ${advisorFilter === "all" ? "bg-white dark:bg-slate-700 shadow-xs font-semibold text-sky-600 dark:text-sky-400" : "text-slate-600 dark:text-slate-400"}`}
+                      >
+                        Semua ({replenishmentItems.length})
+                      </button>
+                      <button
+                        onClick={() => setAdvisorFilter("reorder")}
+                        className={`px-3 py-1.5 rounded-md transition ${advisorFilter === "reorder" ? "bg-white dark:bg-slate-700 shadow-xs font-semibold text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400"}`}
+                      >
+                        Perlu Reorder ({replenishmentItems.filter(i => i.urgency === "Critical" || i.urgency === "High").length})
+                      </button>
+                      <button
+                        onClick={() => setAdvisorFilter("deadstock")}
+                        className={`px-3 py-1.5 rounded-md transition ${advisorFilter === "deadstock" ? "bg-white dark:bg-slate-700 shadow-xs font-semibold text-purple-600 dark:text-purple-400" : "text-slate-600 dark:text-slate-400"}`}
+                      >
+                        Stok Mati ({replenishmentItems.filter(i => i.urgency === "Dead Stock").length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Recommendations Cards & Table */}
+                  <div className="mt-4 space-y-4">
+                    {(() => {
+                      const filtered = replenishmentItems.filter(item => {
+                        if (advisorFilter === "reorder") return item.urgency === "Critical" || item.urgency === "High";
+                        if (advisorFilter === "deadstock") return item.urgency === "Dead Stock";
+                        return true;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="py-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                            <CheckCircle2 className="mx-auto text-emerald-500 w-10 h-10 mb-2" />
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Tidak ada produk dalam kategori ini.</p>
+                            <p className="text-xs text-slate-400 mt-1">Stok inventaris Anda dalam kondisi optimal sesuai analisis AI sales velocity.</p>
+                          </div>
+                        );
+                      }
+
+                      return filtered.map((item) => {
+                        const isGenerating = generatingPoId === item.productId;
+                        return (
+                          <div
+                            key={item.productId}
+                            className={`p-4 rounded-xl border transition-all ${
+                              item.urgency === "Critical"
+                                ? "bg-rose-50/70 border-rose-200 dark:bg-rose-950/20 dark:border-rose-900/50"
+                                : item.urgency === "High"
+                                ? "bg-amber-50/70 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50"
+                                : item.urgency === "Dead Stock"
+                                ? "bg-purple-50/70 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900/50"
+                                : "bg-slate-50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-700"
+                            }`}
+                          >
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-slate-900 dark:text-white text-base">
+                                    {item.productName}
+                                  </span>
+                                  <span className="text-xs font-mono text-slate-400 bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                                    SKU: {item.sku}
+                                  </span>
+                                  <span
+                                    className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+                                      item.urgency === "Critical"
+                                        ? "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300"
+                                        : item.urgency === "High"
+                                        ? "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300"
+                                        : item.urgency === "Dead Stock"
+                                        ? "bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950 dark:text-purple-300"
+                                        : "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300"
+                                    }`}
+                                  >
+                                    {item.urgency === "Critical"
+                                      ? "⚠️ CRITICAL (Stok Kritis)"
+                                      : item.urgency === "High"
+                                      ? "⚡ REORDER NEEDED"
+                                      : item.urgency === "Dead Stock"
+                                      ? "🧊 DEAD STOCK (Stok Mati)"
+                                      : "✅ OPTIMAL"}
+                                  </span>
+                                </div>
+
+                                {/* Dynamic AI Recommendation text quote */}
+                                <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-lg border border-slate-200/60 dark:border-slate-700/60 text-xs font-medium text-slate-800 dark:text-slate-200 flex items-start gap-2">
+                                  <Sparkles size={16} className="text-sky-500 shrink-0 mt-0.5" />
+                                  <span>{item.recommendationText}</span>
+                                </div>
+
+                                {/* Analytics Metrics summary */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
+                                  <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-800">
+                                    <span className="text-slate-400 block text-[10px]">Stok Saat Ini:</span>
+                                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                                      {item.currentStock} unit
+                                    </span>{" "}
+                                    <span className="text-[10px] text-slate-400">(Min: {item.minimumStock})</span>
+                                  </div>
+                                  <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-800">
+                                    <span className="text-slate-400 block text-[10px]">Penjualan 30 Hari:</span>
+                                    <span className="font-bold text-sky-600 dark:text-sky-400">
+                                      {item.salesVelocity30Days} unit
+                                    </span>{" "}
+                                    <span className="text-[10px] text-slate-400">({item.dailyVelocity}/hari)</span>
+                                  </div>
+                                  <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-800">
+                                    <span className="text-slate-400 block text-[10px]">Estimasi Stok Habis:</span>
+                                    <span className={`font-bold ${item.estimatedDaysRemaining <= 5 ? "text-rose-600 dark:text-rose-400" : "text-slate-800 dark:text-slate-200"}`}>
+                                      {item.estimatedDaysRemaining > 300 ? "> 30 Hari (Stok Mati)" : `${item.estimatedDaysRemaining} Hari`}
+                                    </span>
+                                  </div>
+                                  <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-800">
+                                    <span className="text-slate-400 block text-[10px]">Supplier Rujukan:</span>
+                                    <span className="font-bold text-slate-800 dark:text-slate-200 truncate block" title={item.supplierName}>
+                                      {item.supplierName}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 justify-center">
+                                <button
+                                  onClick={() => handleGenerateDraftPO(item.productId, item.suggestedRestockQuantity, item.supplierId)}
+                                  disabled={isGenerating}
+                                  className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-md hover:shadow-sky-500/20 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                  {isGenerating ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span>Membuat PO...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ShoppingCart className="w-4 h-4" />
+                                      <span>Generate Draft PO (+{item.suggestedRestockQuantity} unit)</span>
+                                    </>
+                                  )}
                                 </button>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr className="align-top">
-                            <td colSpan={6} className="py-4 text-center text-slate-400">Tidak ada stok produk kritis di database. Semua stok aman.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                                <button
+                                  onClick={() => router.push('/ProductInventory')}
+                                  className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 transition text-center"
+                                >
+                                  Kelola Stok
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </Card>
               </div>
+
+              {/* Success Dialog Modal after generating Draft PO */}
+              {poSuccessModal && (
+                <Dialog open={poSuccessModal.isOpen} onOpenChange={(open) => !open && setPoSuccessModal(null)}>
+                  <DialogContent className="sm:max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl">
+                    <div className="text-center space-y-3">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800">
+                        <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                        Draft Purchase Order Berhasil Dibuat!
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Sistem AI telah menerbitkan rekomendasi restock menjadi dokumen Draft Purchase Order resmi di database FlowERP.
+                      </p>
+                    </div>
+
+                    <div className="my-4 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-100 dark:border-slate-700 space-y-2 text-xs">
+                      <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                        <span className="text-slate-500">Nomor PO:</span>
+                        <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{poSuccessModal.poNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Produk:</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">{poSuccessModal.productName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Jumlah Restock:</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">{poSuccessModal.quantity} unit</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Supplier:</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">{poSuccessModal.supplierName}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2 font-bold text-sm">
+                        <span className="text-slate-700 dark:text-slate-300">Total Biaya PO:</span>
+                        <span className="text-emerald-600 dark:text-emerald-400">${poSuccessModal.totalAmount.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 mt-4">
+                      <button
+                        onClick={() => setPoSuccessModal(null)}
+                        className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+                      >
+                        Tutup
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPoSuccessModal(null);
+                          router.push('/Purchases');
+                        }}
+                        className="flex-1 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-md transition flex items-center justify-center gap-2"
+                      >
+                        <FileText size={16} />
+                        <span>Ke Menu Purchases</span>
+                      </button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
 
               {/* Customer & Supplier Intelligence */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">

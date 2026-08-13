@@ -48,3 +48,6 @@ prisma/dev.db
 .agents/
 .claude/
 .windsurf/
+AGENTS.md
+CLAUDE.md
+flowerpai-PRD.md

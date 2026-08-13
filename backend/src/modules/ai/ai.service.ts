@@ -37,23 +37,76 @@ export class AiService {
   }
 
   async getStockPredictions(companyId: string) {
-    const inventoryReport = await this.reportRepo.getInventoryReport(companyId);
-    const lowStockItems = inventoryReport.items.filter((i) => i.isLowStock);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    
+    const [products, sales30Days] = await Promise.all([
+      prisma.product.findMany({
+        where: { companyId },
+        include: { supplier: true },
+      }),
+      prisma.salesItem.groupBy({
+        by: ['productId'],
+        where: {
+          salesOrder: {
+            companyId,
+            createdAt: { gte: thirtyDaysAgo },
+          },
+        },
+        _sum: { quantity: true },
+      }),
+    ]);
 
-    const predictions = lowStockItems.map((item) => ({
-      productId: item.id,
-      productName: item.name,
-      sku: item.sku,
-      currentStock: item.stock,
-      minimumStock: item.minimumStock,
-      estimatedDaysRemaining: Math.max(1, Math.floor(item.stock * 1.5)),
-      suggestedRestockQuantity: item.minimumStock * 3,
-      urgency: item.stock === 0 ? 'CRITICAL' : 'HIGH',
-    }));
+    const velocityMap = new Map<string, number>();
+    sales30Days.forEach((item) => {
+      velocityMap.set(item.productId, item._sum.quantity || 0);
+    });
+
+    const predictions = products.map((item) => {
+      const sold30Days = velocityMap.get(item.id) || 0;
+      const dailyVelocity = sold30Days / 30;
+      const estimatedDaysRemaining = dailyVelocity > 0 ? Math.max(1, Math.round(item.stock / dailyVelocity)) : (item.stock === 0 ? 0 : 999);
+      const suggestedRestockQuantity = Math.max((item.minimumStock || 10) * 2, Math.round(dailyVelocity * 30 || 50));
+      const supplierName = item.supplier ? (item.supplier.companyName || item.supplier.name) : "Supplier Utama";
+
+      let urgency = "OPTIMAL";
+      let recommendationText = "";
+
+      if (item.stock === 0 || (dailyVelocity > 0 && estimatedDaysRemaining <= 3)) {
+        urgency = "CRITICAL";
+        recommendationText = `Stok ${item.name} diperkirakan habis dalam ${estimatedDaysRemaining <= 0 ? 1 : estimatedDaysRemaining} hari. Disarankan buat PO sebanyak ${suggestedRestockQuantity} unit ke ${supplierName} hari ini.`;
+      } else if (item.stock <= item.minimumStock || (dailyVelocity > 0 && estimatedDaysRemaining <= 7)) {
+        urgency = "HIGH";
+        recommendationText = `Stok ${item.name} (sisa ${item.stock} unit) diperkirakan habis dalam ${estimatedDaysRemaining} hari. Disarankan buat PO sebanyak ${suggestedRestockQuantity} unit ke ${supplierName} hari ini.`;
+      } else if (sold30Days === 0 && item.stock > 5) {
+        urgency = "DEAD_STOCK";
+        recommendationText = `Stok Mati (Dead Stock): ${item.name} tidak ada penjualan 30 hari terakhir (${item.stock} unit terendap). Disarankan diskon clearance.`;
+      } else {
+        urgency = "OPTIMAL";
+        recommendationText = `Stok ${item.name} aman (${item.stock} unit).`;
+      }
+
+      return {
+        productId: item.id,
+        productName: item.name,
+        sku: item.sku,
+        currentStock: item.stock,
+        minimumStock: item.minimumStock,
+        salesVelocity30Days: sold30Days,
+        dailyVelocity: Number(dailyVelocity.toFixed(2)),
+        estimatedDaysRemaining,
+        suggestedRestockQuantity,
+        supplierId: item.supplierId,
+        supplierName,
+        urgency,
+        recommendationText,
+      };
+    });
+
+    const activePredictions = predictions.filter((p) => p.urgency !== "OPTIMAL");
 
     return {
-      totalPredictedLowStock: predictions.length,
-      predictions,
+      totalPredictedLowStock: activePredictions.length,
+      predictions: activePredictions.length > 0 ? activePredictions : predictions,
     };
   }
 
