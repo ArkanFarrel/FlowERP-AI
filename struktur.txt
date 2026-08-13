@@ -1,0 +1,99 @@
+npm install zustand
+npm install react-hook-form
+npm install zod
+npm install @hookform/resolvers
+npm install recharts
+npm install lucide-react
+npm install sonner
+npm install date-fns
+npm install clsx
+npm install @supabase/supabase-js
+npm install openai
+
+
+erp-lite/
+│
+├── app/
+│   ├── (auth)/
+│   │   ├── login/
+│   │   │   └── page.tsx
+│   │   ├── register/
+│   │   │   └── page.tsx
+│   │   └── layout.tsx
+│   │
+│   ├── (dashboard)/
+│   │   ├── dashboard/
+│   │   │   └── page.tsx
+│   │   │
+│   │   ├── products/
+│   │   │   ├── page.tsx
+│   │   │   ├── create/
+│   │   │   │   └── page.tsx
+│   │   │   └── [id]/
+│   │   │       └── edit/
+│   │   │           └── page.tsx
+│   │   │
+│   │   ├── customers/
+│   │   │   ├── page.tsx
+│   │   │   ├── create/
+│   │   │   └── [id]/
+│   │   │
+│   │   ├── suppliers/
+│   │   │   ├── page.tsx
+│   │   │   ├── create/
+│   │   │   └── [id]/
+│   │   │
+│   │   └── layout.tsx
+│   │
+│   ├── api/
+│   ├── favicon.ico
+│   ├── globals.css
+│   └── layout.tsx
+│
+├── components/
+│   ├── layout/
+│   │   ├── sidebar.tsx
+│   │   ├── navbar.tsx
+│   │   └── page-header.tsx
+│   │
+│   ├── ui/
+│   ├── dashboard/
+│   │   ├── stats-card.tsx
+│   │   ├── sales-chart.tsx
+│   │   └── recent-sales.tsx
+│   │
+│   ├── product/
+│   │   ├── product-form.tsx
+│   │   ├── product-table.tsx
+│   │   └── delete-dialog.tsx
+│   │
+│   ├── customer/
+│   └── supplier/
+│
+├── actions/
+│   ├── auth.ts
+│   ├── product.ts
+│   ├── customer.ts
+│   └── supplier.ts
+│
+├── lib/
+│   ├── prisma.ts
+│   ├── auth.ts
+│   ├── utils.ts
+│   └── validations/
+│       ├── product.ts
+│       ├── customer.ts
+│       └── supplier.ts
+│
+├── prisma/
+│   ├── schema.prisma
+│   └── migrations/
+│
+├── hooks/
+│
+├── types/
+│
+├── middleware.ts
+├── .env
+├── package.json
+└── AGENTS.md

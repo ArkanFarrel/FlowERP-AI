@@ -1,0 +1,319 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  INACTIVE
+}
+
+enum StockMovementType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  RETURN
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  COMPLETED
+  CANCELLED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  PENDING
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+model Company {
+  id          String   @id @default(uuid())
+  name        String
+  logoUrl     String?
+  taxRate     Float    @default(0.0)
+  currency    String   @default("USD")
+  address     String?
+  phone       String?
+  email       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  products    Product[]
+  categories  Category[]
+  customers   Customer[]
+  suppliers   Supplier[]
+  salesOrders SalesOrder[]
+  purchases   PurchaseOrder[]
+  movements   StockMovement[]
+  invoices    Invoice[]
+  aiLogs      AiLog[]
+
+  @@map("companies")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  companyId    String
+  email        String        @unique
+  passwordHash String
+  fullName     String
+  role         String        @default("STAFF")
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesOrders  SalesOrder[]
+  purchases    PurchaseOrder[]
+
+  @@index([companyId])
+  @@map("users")
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  companyId   String
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products    Product[]
+
+  @@unique([companyId, name])
+  @@map("categories")
+}
+
+model Supplier {
+  id           String          @id @default(uuid())
+  companyId    String
+  name         String
+  companyName  String?
+  email        String?
+  phone        String?
+  address      String?
+  paymentTerms String?
+  rating       Float?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products     Product[]
+  purchases    PurchaseOrder[]
+
+  @@index([companyId])
+  @@map("suppliers")
+}
+
+model Product {
+  id           String          @id @default(uuid())
+  companyId    String
+  categoryId   String?
+  supplierId   String?
+  sku          String
+  barcode      String?
+  name         String
+  brand        String?
+  unit         String?
+  description  String?
+  imageUrl     String?
+  costPrice    Float           @default(0.0)
+  sellingPrice Float           @default(0.0)
+  tax          Float           @default(0.0)
+  discount     Float           @default(0.0)
+  stock        Int             @default(0)
+  reserved     Int             @default(0)
+  minimumStock Int             @default(10)
+  maximumStock Int             @default(1000)
+  warehouse    String          @default("Central Store")
+  rackLocation String?
+  status       String          @default("ACTIVE")
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category     Category?       @relation(fields: [categoryId], references: [id])
+  supplier     Supplier?       @relation(fields: [supplierId], references: [id])
+  saleItems    SalesItem[]
+  purchaseItems PurchaseItem[]
+  movements    StockMovement[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, status])
+  @@map("products")
+}
+
+model Customer {
+  id                 String       @id @default(uuid())
+  companyId          String
+  name               String
+  companyName        String?
+  email              String?
+  phone              String?
+  address            String?
+  city               String?
+  country            String?
+  creditLimit        Float        @default(0.0)
+  outstandingBalance Float        @default(0.0)
+  loyaltyPoints      Int          @default(0)
+  healthScore        Int          @default(100)
+  segment            String       @default("Standard")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesOrders        SalesOrder[]
+
+  @@index([companyId])
+  @@map("customers")
+}
+
+model SalesOrder {
+  id            String        @id @default(uuid())
+  companyId     String
+  orderNumber   String
+  customerId    String
+  salespersonId String
+  subtotal      Float
+  tax           Float         @default(0.0)
+  discount      Float         @default(0.0)
+  totalAmount   Float
+  paymentStatus String        @default("UNPAID")
+  status        String        @default("PENDING")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  salesperson   User          @relation(fields: [salespersonId], references: [id])
+  items         SalesItem[]
+  invoices      Invoice[]
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+  @@map("sales_orders")
+}
+
+model SalesItem {
+  id           String     @id @default(uuid())
+  salesOrderId String
+  productId    String
+  quantity     Int
+  unitPrice    Float
+  subtotal     Float
+
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
+
+  @@map("sales_items")
+}
+
+model PurchaseOrder {
+  id          String         @id @default(uuid())
+  companyId   String
+  poNumber    String
+  supplierId  String
+  createdById String
+  subtotal    Float
+  tax         Float          @default(0.0)
+  totalAmount Float
+  status      String         @default("PENDING")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier    Supplier       @relation(fields: [supplierId], references: [id])
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  items       PurchaseItem[]
+
+  @@unique([companyId, poNumber])
+  @@index([companyId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Int
+  unitCost        Float
+  subtotal        Float
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product         Product       @relation(fields: [productId], references: [id])
+
+  @@map("purchase_items")
+}
+
+model StockMovement {
+  id        String            @id @default(uuid())
+  companyId String
+  productId String
+  type      String
+  quantity  Int
+  reference String?
+  notes     String?
+  createdAt DateTime          @default(now())
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, productId])
+  @@map("stock_movements")
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  companyId     String
+  salesOrderId  String
+  invoiceNumber String
+  amount        Float
+  paymentStatus String        @default("UNPAID")
+  dueDate       DateTime
+  issuedDate    DateTime      @default(now())
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+
+  @@unique([companyId, invoiceNumber])
+  @@map("invoices")
+}
+
+model AiLog {
+  id         String   @id @default(uuid())
+  companyId  String
+  prompt     String
+  response   String
+  tokensUsed Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("ai_logs")
+}

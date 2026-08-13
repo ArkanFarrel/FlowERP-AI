@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Database
+dev.db
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# AI coding tools
+.agents/
+.claude/
+.windsurf/
+
+# Temporary / scratch files
+scratch/
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
