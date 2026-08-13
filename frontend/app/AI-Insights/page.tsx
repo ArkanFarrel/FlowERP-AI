@@ -5,6 +5,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Brain,
+  Clock,
   TrendingUp,
   PackageSearch,
   Sparkles,
@@ -17,10 +18,6 @@ import {
   ShoppingCart,
   CheckCircle2,
   FileText,
-  ArrowRight,
-  Clock,
-  AlertOctagon,
-  Layers,
 } from "lucide-react";
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -55,14 +52,26 @@ export default function InsightPage() {
   const [generatingPoId, setGeneratingPoId] = useState<string | null>(null);
   const [advisorFilter, setAdvisorFilter] = useState<"all" | "reorder" | "deadstock">("all");
   const [replenishmentItems, setReplenishmentItems] = useState<ReplenishmentItem[]>([]);
+
+  // Order Confirmation Modal (qty editor + price preview before generating PO)
+  const [orderConfirmModal, setOrderConfirmModal] = useState<{
+    isOpen: boolean;
+    item: ReplenishmentItem;
+    orderQty: number;
+    targetStatus: "Delivered" | "Ordered";
+  } | null>(null);
+
   const [poSuccessModal, setPoSuccessModal] = useState<{
     isOpen: boolean;
     poNumber: string;
     productName: string;
+    sku: string;
     supplierName: string;
     quantity: number;
+    unitCost: number;
     totalAmount: number;
     message: string;
+    createdAt: string;
   } | null>(null);
 
   const [insightsData, setInsightsData] = useState<{
@@ -125,20 +134,28 @@ export default function InsightPage() {
     fetchInsightsData();
   }, []);
 
-  const handleGenerateDraftPO = async (productId: string, quantity?: number, supplierId?: string) => {
+  const handleOpenOrderModal = (item: ReplenishmentItem) => {
+    setOrderConfirmModal({ isOpen: true, item, orderQty: item.suggestedRestockQuantity, targetStatus: "Delivered" });
+  };
+
+  const handleGenerateDraftPO = async (productId: string, quantity: number, supplierId?: string, targetStatus: "Delivered" | "Ordered" = "Delivered") => {
     setGeneratingPoId(productId);
     try {
       const { generateDraftPOFromAI } = await import('@/app/actions/purchases');
-      const res = await generateDraftPOFromAI(productId, quantity, supplierId);
+      const res = await generateDraftPOFromAI(productId, quantity, supplierId, targetStatus);
       if (res.success && res.data) {
+        setOrderConfirmModal(null);
         setPoSuccessModal({
           isOpen: true,
           poNumber: res.data.poNumber,
           productName: res.data.productName,
+          sku: orderConfirmModal?.item.sku || '',
           supplierName: res.data.supplierName,
           quantity: res.data.quantity,
+          unitCost: res.data.unitCost,
           totalAmount: res.data.totalAmount,
           message: res.message || `Draft PO ${res.data.poNumber} telah berhasil dibuat!`,
+          createdAt: new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' }),
         });
         await fetchInsightsData();
       } else {
@@ -389,7 +406,7 @@ export default function InsightPage() {
               </div>
 
               {/* Inventory Optimization */}
-              {/* 🤖 AI Reorder & Smart Replenishment Advisor */}
+              {/* AI Reorder & Smart Replenishment Advisor */}
               <div className="mt-6">
                 <Card className="border-sky-200/80 dark:border-sky-900/50 shadow-md">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
@@ -400,7 +417,7 @@ export default function InsightPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                            🤖 AI Reorder & Smart Replenishment Advisor
+                            AI Reorder & Smart Replenishment Advisor
                           </h3>
                           <span className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-sky-200 dark:border-sky-800">
                             Sales Velocity Engine 30 Hari
@@ -490,12 +507,12 @@ export default function InsightPage() {
                                     }`}
                                   >
                                     {item.urgency === "Critical"
-                                      ? "⚠️ CRITICAL (Stok Kritis)"
+                                      ? "CRITICAL (Stok Kritis)"
                                       : item.urgency === "High"
-                                      ? "⚡ REORDER NEEDED"
+                                      ? "REORDER NEEDED"
                                       : item.urgency === "Dead Stock"
-                                      ? "🧊 DEAD STOCK (Stok Mati)"
-                                      : "✅ OPTIMAL"}
+                                      ? "DEAD STOCK (Stok Mati)"
+                                      : "OPTIMAL"}
                                   </span>
                                 </div>
 
@@ -529,7 +546,7 @@ export default function InsightPage() {
                                   </div>
                                   <div className="bg-white/50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-800">
                                     <span className="text-slate-400 block text-[10px]">Supplier Rujukan:</span>
-                                    <span className="font-bold text-slate-800 dark:text-slate-200 truncate block" title={item.supplierName}>
+                            <span className="font-bold text-slate-800 dark:text-slate-200 truncate block" title={item.supplierName}>
                                       {item.supplierName}
                                     </span>
                                   </div>
@@ -538,23 +555,25 @@ export default function InsightPage() {
 
                               {/* Action Buttons */}
                               <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 justify-center">
-                                <button
-                                  onClick={() => handleGenerateDraftPO(item.productId, item.suggestedRestockQuantity, item.supplierId)}
-                                  disabled={isGenerating}
-                                  className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-md hover:shadow-sky-500/20 transition flex items-center justify-center gap-2 disabled:opacity-50"
-                                >
-                                  {isGenerating ? (
-                                    <>
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span>Membuat PO...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ShoppingCart className="w-4 h-4" />
-                                      <span>Generate Draft PO (+{item.suggestedRestockQuantity} unit)</span>
-                                    </>
-                                  )}
-                                </button>
+                                {item.urgency !== "Dead Stock" && (
+                                  <button
+                                    onClick={() => handleOpenOrderModal(item)}
+                                    disabled={isGenerating}
+                                    className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-md hover:shadow-sky-500/20 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                  >
+                                    {isGenerating ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span>Membuat PO...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ShoppingCart className="w-4 h-4" />
+                                        <span>Buat Purchase Order</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => router.push('/ProductInventory')}
                                   className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 transition text-center"
@@ -571,62 +590,232 @@ export default function InsightPage() {
                 </Card>
               </div>
 
-              {/* Success Dialog Modal after generating Draft PO */}
+              {/* ─── Order Confirmation Modal ─── */}
+              {orderConfirmModal && (
+                <Dialog open={orderConfirmModal.isOpen} onOpenChange={(open) => !open && setOrderConfirmModal(null)}>
+                  <DialogContent className="sm:max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-0 rounded-2xl overflow-hidden max-h-[90vh] flex flex-col">
+                    {/* Header - sticky */}
+                    <div className="bg-sky-600 px-6 py-4 flex items-center gap-3 shrink-0">
+                      <ShoppingCart className="h-5 w-5 text-white" />
+                      <h3 className="text-base font-bold text-white">Konfirmasi Purchase Order</h3>
+                    </div>
+
+                    <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1">
+                      {/* Product info */}
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="p-2 bg-sky-100 dark:bg-sky-950 rounded-lg">
+                          <Sparkles className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-900 dark:text-white text-sm truncate">{orderConfirmModal.item.productName}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">SKU: {orderConfirmModal.item.sku} &bull; Supplier: {orderConfirmModal.item.supplierName}</p>
+                          <p className="text-xs text-slate-500">Stok saat ini: <span className="font-semibold text-rose-600">{orderConfirmModal.item.currentStock} unit</span> (Min: {orderConfirmModal.item.minimumStock})</p>
+                        </div>
+                      </div>
+
+                      {/* Unit Price */}
+                      <div className="flex items-center justify-between p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Harga per Unit (Cost Price)</span>
+                        <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
+                          {orderConfirmModal.item.costPrice > 0
+                            ? `$${orderConfirmModal.item.costPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                            : <span className="text-xs text-slate-400">Belum ada harga</span>}
+                        </span>
+                      </div>
+
+                      {/* Qty Input */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Jumlah yang Dipesan</label>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setOrderConfirmModal(prev => prev ? { ...prev, orderQty: Math.max(1, prev.orderQty - 1) } : null)}
+                            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition text-lg"
+                          >−</button>
+                          <input
+                            type="number"
+                            min="1"
+                            value={orderConfirmModal.orderQty}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 1;
+                              setOrderConfirmModal(prev => prev ? { ...prev, orderQty: Math.max(1, val) } : null);
+                            }}
+                            className="flex-1 h-10 text-center text-base font-bold border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setOrderConfirmModal(prev => prev ? { ...prev, orderQty: prev.orderQty + 1 } : null)}
+                            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition text-lg"
+                          >+</button>
+                        </div>
+                        <p className="text-xs text-slate-400">Rekomendasi AI: {orderConfirmModal.item.suggestedRestockQuantity} unit</p>
+                      </div>
+
+                      {/* Order Status Option */}
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Status Pembelian & Update Stok</label>
+                        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => setOrderConfirmModal(prev => prev ? { ...prev, targetStatus: "Delivered" } : null)}
+                            className={`py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                              orderConfirmModal.targetStatus === "Delivered"
+                                ? "bg-emerald-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                            }`}
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Langsung Terima & Tambah Stok</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setOrderConfirmModal(prev => prev ? { ...prev, targetStatus: "Ordered" } : null)}
+                            className={`py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                              orderConfirmModal.targetStatus === "Ordered"
+                                ? "bg-sky-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                            }`}
+                          >
+                            <Clock size={14} />
+                            <span>Draft PO (Menunggu Pengiriman)</span>
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          {orderConfirmModal.targetStatus === "Delivered"
+                            ? "✅ Stok produk akan langsung bertambah di database (+ " + orderConfirmModal.orderQty + " unit)."
+                            : "⏳ Barang akan dipesan (stok bertambah ketika diset 'Delivered' di menu Purchases)."}
+                        </p>
+                      </div>
+
+                      {/* Live Price Breakdown */}
+                      <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                        <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Rincian Harga</p>
+                        </div>
+                        <div className="px-4 py-3 space-y-2 text-sm">
+                          <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                            <span>Harga per Unit</span>
+                            <span>${orderConfirmModal.item.costPrice > 0 ? orderConfirmModal.item.costPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                            <span>Jumlah Order</span>
+                            <span>× {orderConfirmModal.orderQty} unit</span>
+                          </div>
+                          <div className="flex justify-between font-bold text-base text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-700">
+                            <span>Total</span>
+                            <span className="text-emerald-600 dark:text-emerald-400">
+                              ${(orderConfirmModal.item.costPrice * orderConfirmModal.orderQty).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Action buttons - sticky footer */}
+                    <div className="flex gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0">
+                      <button
+                        onClick={() => setOrderConfirmModal(null)}
+                        className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-semibold transition"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        onClick={() => handleGenerateDraftPO(orderConfirmModal.item.productId, orderConfirmModal.orderQty, orderConfirmModal.item.supplierId, orderConfirmModal.targetStatus)}
+                        disabled={generatingPoId === orderConfirmModal.item.productId}
+                        className="flex-1 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-sm font-semibold shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {generatingPoId === orderConfirmModal.item.productId ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" /><span>Memproses...</span></>
+                        ) : (
+                          <><FileText className="w-4 h-4" /><span>Konfirmasi & Process PO</span></>
+                        )}
+                      </button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
+
+              {/* ─── Invoice Modal after PO Created ─── */}
               {poSuccessModal && (
                 <Dialog open={poSuccessModal.isOpen} onOpenChange={(open) => !open && setPoSuccessModal(null)}>
-                  <DialogContent className="sm:max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl">
-                    <div className="text-center space-y-3">
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800">
-                        <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
-                      </div>
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                        Draft Purchase Order Berhasil Dibuat!
-                      </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        Sistem AI telah menerbitkan rekomendasi restock menjadi dokumen Draft Purchase Order resmi di database FlowERP.
-                      </p>
-                    </div>
-
-                    <div className="my-4 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-100 dark:border-slate-700 space-y-2 text-xs">
-                      <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
-                        <span className="text-slate-500">Nomor PO:</span>
-                        <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{poSuccessModal.poNumber}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Produk:</span>
-                        <span className="font-semibold text-slate-900 dark:text-white">{poSuccessModal.productName}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Jumlah Restock:</span>
-                        <span className="font-semibold text-slate-900 dark:text-white">{poSuccessModal.quantity} unit</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Supplier:</span>
-                        <span className="font-semibold text-slate-900 dark:text-white">{poSuccessModal.supplierName}</span>
-                      </div>
-                      <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2 font-bold text-sm">
-                        <span className="text-slate-700 dark:text-slate-300">Total Biaya PO:</span>
-                        <span className="text-emerald-600 dark:text-emerald-400">${poSuccessModal.totalAmount.toLocaleString()}</span>
+                  <DialogContent className="sm:max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-0 rounded-2xl overflow-hidden">
+                    {/* Invoice Header */}
+                    <div className="bg-emerald-600 px-6 py-4 text-white flex items-center gap-3">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <div>
+                        <h3 className="text-base font-bold">Purchase Order Dibuat!</h3>
+                        <p className="text-xs text-emerald-100">{poSuccessModal.createdAt}</p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 mt-4">
-                      <button
-                        onClick={() => setPoSuccessModal(null)}
-                        className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
-                      >
-                        Tutup
-                      </button>
-                      <button
-                        onClick={() => {
-                          setPoSuccessModal(null);
-                          router.push('/Purchases');
-                        }}
-                        className="flex-1 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-md transition flex items-center justify-center gap-2"
-                      >
-                        <FileText size={16} />
-                        <span>Ke Menu Purchases</span>
-                      </button>
+                    {/* Invoice Body */}
+                    <div className="px-6 py-5 space-y-4">
+                      {/* PO Number badge */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Nomor PO</span>
+                        <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm bg-sky-50 dark:bg-sky-950 px-3 py-1 rounded-full border border-sky-200 dark:border-sky-800">{poSuccessModal.poNumber}</span>
+                      </div>
+
+                      {/* Invoice Line Items */}
+                      <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                        <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2.5 grid grid-cols-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                          <span>Item</span>
+                          <span className="text-center">Qty</span>
+                          <span className="text-right">Subtotal</span>
+                        </div>
+                        <div className="px-4 py-3">
+                          <div className="grid grid-cols-3 items-center gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{poSuccessModal.productName}</p>
+                              <p className="text-[11px] text-slate-400">{poSuccessModal.sku} &bull; @${poSuccessModal.unitCost > 0 ? poSuccessModal.unitCost.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}/unit</p>
+                            </div>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 text-center">{poSuccessModal.quantity} unit</p>
+                            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 text-right">
+                              ${(poSuccessModal.unitCost * poSuccessModal.quantity).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Summary */}
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between text-slate-500">
+                          <span>Supplier</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{poSuccessModal.supplierName}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>Unit Cost</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">${poSuccessModal.unitCost > 0 ? poSuccessModal.unitCost.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>Jumlah</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{poSuccessModal.quantity} unit</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-700 font-bold text-base">
+                          <span className="text-slate-700 dark:text-slate-300">Grand Total</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 text-lg">${poSuccessModal.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-center text-slate-400 dark:text-slate-500">Draft PO telah tersimpan di database dan siap diproses oleh tim purchasing.</p>
+
+                      {/* CTA */}
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setPoSuccessModal(null)}
+                          className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-semibold transition"
+                        >
+                          Tutup
+                        </button>
+                        <button
+                          onClick={() => { setPoSuccessModal(null); router.push('/Purchases'); }}
+                          className="flex-1 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-sm font-semibold shadow-md transition flex items-center justify-center gap-2"
+                        >
+                          <FileText size={15} />
+                          <span>Lihat di Purchases</span>
+                        </button>
+                      </div>
                     </div>
                   </DialogContent>
                 </Dialog>

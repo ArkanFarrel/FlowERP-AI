@@ -217,16 +217,79 @@ export async function getAiInsightsData() {
     const totalPurchases = purchaseAgg._sum.totalAmount || 0;
     const forecastVal = Math.round(totalRevenue > 0 ? totalRevenue * 1.14 : 0);
 
-    // Time-Series Sales Velocity Rate Calculation (Dynamic per Product)
-    const saleItems = await prisma.saleItem.groupBy({
-      by: ['productId'],
-      where: { sale: { companyId: company.id } },
-      _sum: { quantity: true },
+    // Time-Series Sales Velocity Rate & Smart Replenishment Advisor (30 Days)
+    const [allProductsWithSupplier, saleItems] = await Promise.all([
+      prisma.product.findMany({
+        where: { companyId: company.id },
+        select: { id: true, name: true, sku: true, stock: true, minStock: true, costPrice: true, sellingPrice: true, supplierId: true },
+      }),
+      prisma.saleItem.groupBy({
+        by: ['productId'],
+        where: { sale: { companyId: company.id } },
+        _sum: { quantity: true },
+      }),
+    ]);
+
+    // Fetch suppliers map for naming
+    const dbSuppliers = await prisma.supplier.findMany({
+      where: { companyId: company.id },
+      select: { id: true, name: true, company: true },
+    });
+    const supplierMap = new Map<string, string>();
+    dbSuppliers.forEach(s => {
+      supplierMap.set(s.id, s.company && s.company !== s.name ? `${s.name} (${s.company})` : s.name);
     });
 
     const salesVelocityMap = new Map<string, number>();
     saleItems.forEach(item => {
       salesVelocityMap.set(item.productId, item._sum.quantity || 0);
+    });
+
+    const replenishmentAdvisor = allProductsWithSupplier.map((item) => {
+      const sold30Days = salesVelocityMap.get(item.id) || 0;
+      const dailyVelocity = sold30Days / 30;
+      const estimatedDaysRemaining = dailyVelocity > 0 ? Math.max(1, Math.round(item.stock / dailyVelocity)) : (item.stock === 0 ? 0 : 999);
+      const suggestedRestockQuantity = Math.max((item.minStock || 10) * 2, Math.round(dailyVelocity * 30 || 50));
+      const supplierName = (item.supplierId && supplierMap.get(item.supplierId)) || "Supplier Utama";
+
+      // Effective cost price calculation (use DB costPrice, or 70% of sellingPrice, or default 50)
+      const effectiveCostPrice = item.costPrice && item.costPrice > 0
+        ? item.costPrice
+        : (item.sellingPrice && item.sellingPrice > 0 ? Number((item.sellingPrice * 0.7).toFixed(2)) : 50);
+
+      let urgency: "Critical" | "High" | "Dead Stock" | "Optimal" = "Optimal";
+      let recommendationText = "";
+
+      if (item.stock === 0 || (dailyVelocity > 0 && estimatedDaysRemaining <= 3)) {
+        urgency = "Critical";
+        recommendationText = `Stok ${item.name} diperkirakan habis dalam ${estimatedDaysRemaining <= 0 ? 1 : estimatedDaysRemaining} hari. Disarankan buat PO sebanyak ${suggestedRestockQuantity} unit ke ${supplierName} hari ini.`;
+      } else if (item.stock <= (item.minStock || 10) || (dailyVelocity > 0 && estimatedDaysRemaining <= 7)) {
+        urgency = "High";
+        recommendationText = `Stok ${item.name} (sisa ${item.stock} unit) diperkirakan habis dalam ${estimatedDaysRemaining} hari. Disarankan buat PO sebanyak ${suggestedRestockQuantity} unit ke ${supplierName} hari ini.`;
+      } else if (sold30Days === 0 && item.stock > 5) {
+        urgency = "Dead Stock";
+        recommendationText = `Stok Mati (Dead Stock): ${item.name} tidak ada penjualan 30 hari terakhir (${item.stock} unit terendap). Disarankan diskon clearance.`;
+      } else {
+        urgency = "Optimal";
+        recommendationText = `Stok ${item.name} aman (${item.stock} unit).`;
+      }
+
+      return {
+        productId: item.id,
+        productName: item.name,
+        sku: item.sku || "SKU-N/A",
+        currentStock: item.stock,
+        minimumStock: item.minStock || 10,
+        costPrice: effectiveCostPrice,
+        salesVelocity30Days: sold30Days,
+        dailyVelocity: Number(dailyVelocity.toFixed(2)),
+        estimatedDaysRemaining,
+        suggestedRestockQuantity,
+        supplierId: item.supplierId || undefined,
+        supplierName,
+        urgency,
+        recommendationText,
+      };
     });
 
     // Dynamic Predictions Table from DB Products with Time-Series Velocity Rate
@@ -346,6 +409,7 @@ export async function getAiInsightsData() {
         },
         salesReportData,
         predictionsData: predictions,
+        replenishmentAdvisor,
         demandPredictions,
         recommendations,
         dbActivities,

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 
-import { getPurchases, createPurchase, getPurchaseFormData } from '@/app/actions/purchases';
+import { getPurchases, createPurchase, getPurchaseFormData, updatePurchaseStatus } from '@/app/actions/purchases';
 import { exportToCSV } from '@/lib/export';
 import InvoiceModal, { type InvoiceData } from '@/components/ui/InvoiceModal';
 import { FileSpreadsheet, Printer } from 'lucide-react';
@@ -35,6 +35,14 @@ interface PurchaseOrderItem {
   deliveryDate?: string;
   expectedDelivery?: string;
   items: number | string;
+  totalUnits?: number;
+  rawItems?: Array<{
+    name: string;
+    sku: string;
+    quantity: number;
+    unitCost: number;
+    totalCost: number;
+  }>;
   total?: string;
   totalAmount?: string;
   paymentStatus?: string;
@@ -84,23 +92,32 @@ export default function PurchasesPage() {
     const subtotal = Math.round(rawVal / 1.1);
     const tax = rawVal - subtotal;
 
+    const invoiceItems = po.rawItems && po.rawItems.length > 0
+      ? po.rawItems.map(item => ({
+          name: `${item.name} (${item.sku})`,
+          quantity: item.quantity,
+          unitPrice: item.unitCost,
+          subtotal: item.totalCost,
+        }))
+      : [
+          {
+            name: `Purchase Order Procurement (${po.supplier})`,
+            quantity: po.totalUnits || (typeof po.items === 'number' ? po.items : 1),
+            unitPrice: subtotal,
+            subtotal: subtotal,
+          },
+        ];
+
     setSelectedInvoice({
-      orderNumber: `PO-${po.id}`,
+      orderNumber: po.id.startsWith('PO-') ? po.id : `PO-${po.id}`,
       date: po.orderDate || new Date().toLocaleDateString('en-GB'),
       type: 'PURCHASE',
       partyName: po.supplier || 'Vendor Supplier',
       partyCompany: 'Vendor Account',
       paymentStatus: po.paymentStatus || 'Paid',
-      items: [
-        {
-          name: `Purchase Order Procurement (${po.supplier})`,
-          quantity: Number(po.items) || 1,
-          unitPrice: subtotal,
-          subtotal: subtotal,
-        },
-      ],
-      subtotal,
-      tax,
+      items: invoiceItems,
+      subtotal: rawVal,
+      tax: 0,
       total: rawVal,
       companyName: 'FlowERP Store',
     });
@@ -645,7 +662,29 @@ export default function PurchasesPage() {
                               {order.status}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-center">
+                          <td className="px-6 py-4 text-center flex items-center justify-center gap-2">
+                            {order.status !== "Delivered" && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (confirm(`Konfirmasi penerimaan barang untuk ${order.id}? Stok produk akan otomatis bertambah ke katalog.`)) {
+                                    setIsLoading(true);
+                                    const res = await updatePurchaseStatus(order.id, "Delivered");
+                                    if (res.success) {
+                                      alert("Barang berhasil diterima! Stok produk telah bertambah otomatis.");
+                                      fetchPurchases();
+                                    } else {
+                                      alert(res.error || "Gagal memperbarui status PO.");
+                                      setIsLoading(false);
+                                    }
+                                  }
+                                }}
+                                title="Terima Barang & Tambah Stok"
+                                className="inline-flex h-8 px-2.5 items-center justify-center gap-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors text-xs font-semibold cursor-pointer shadow-xs"
+                              >
+                                <PackageCheck className="h-3.5 w-3.5" /> Terima Barang
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleOpenInvoice(order)}

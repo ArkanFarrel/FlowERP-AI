@@ -68,18 +68,34 @@ export async function getPurchases() {
 
     return {
       success: true,
-      data: purchases.map((p) => ({
-        id: p.poNumber,
-        dbId: p.id,
-        supplier: p.supplier ? (p.supplier.company || p.supplier.name) : "Global Supplier",
-        orderDate: p.createdAt ? new Date(p.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Recently",
-        expectedDelivery: p.expectedDelivery
-          ? new Date(p.expectedDelivery).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-          : "N/A",
-        items: `${p.items ? p.items.length : 0} Items`,
-        totalAmount: `$${(p.totalAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 0 })}`,
-        status: p.status,
-      })),
+      data: purchases.map((p) => {
+        const totalUnits = p.items ? p.items.reduce((sum, item) => sum + item.quantity, 0) : 0;
+        const totalTypes = p.items ? p.items.length : 0;
+        const itemsLabel = totalUnits > 0 
+          ? `${totalUnits} Unit${totalTypes > 1 ? ` (${totalTypes} Produk)` : ''}` 
+          : `${totalTypes} Items`;
+
+        return {
+          id: p.poNumber,
+          dbId: p.id,
+          supplier: p.supplier ? (p.supplier.company || p.supplier.name) : "Global Supplier",
+          orderDate: p.createdAt ? new Date(p.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Recently",
+          expectedDelivery: p.expectedDelivery
+            ? new Date(p.expectedDelivery).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+            : "N/A",
+          items: itemsLabel,
+          totalUnits,
+          rawItems: p.items ? p.items.map(item => ({
+            name: item.product?.name || "Product Item",
+            sku: item.product?.sku || "SKU-N/A",
+            quantity: item.quantity,
+            unitCost: item.unitCost,
+            totalCost: item.totalCost,
+          })) : [],
+          totalAmount: `$${(p.totalAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 0 })}`,
+          status: p.status,
+        };
+      }),
       stats: {
         totalOrders,
         totalValue: `$${totalValue.toLocaleString("en-US", { minimumFractionDigits: 0 })}`,
@@ -222,7 +238,7 @@ export async function updatePurchaseStatus(id: string, newStatus: "Ordered" | "P
   }
 }
 
-export async function generateDraftPOFromAI(productId: string, quantity?: number, supplierId?: string) {
+export async function generateDraftPOFromAI(productId: string, quantity?: number, supplierId?: string, targetStatus: "Ordered" | "Delivered" = "Delivered") {
   try {
     const company = await ensureDefaultCompany();
 
@@ -263,19 +279,24 @@ export async function generateDraftPOFromAI(productId: string, quantity?: number
       ? quantity
       : Math.max((product.minStock || 15) * 2, 50);
 
-    const unitCost = product.costPrice || 0;
+    const unitCost = product.costPrice && product.costPrice > 0
+      ? product.costPrice
+      : (product.sellingPrice && product.sellingPrice > 0 ? Number((product.sellingPrice * 0.7).toFixed(2)) : 50);
+
     const totalAmount = restockQty * unitCost;
 
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const poNumber = `PO-${dateStr}-${randomSuffix}`;
 
+    const poStatus = targetStatus === "Delivered" ? PurchaseStatus.Delivered : PurchaseStatus.Ordered;
+
     const purchase = await prisma.purchase.create({
       data: {
         poNumber,
         supplierId: supplier.id,
         totalAmount,
-        status: PurchaseStatus.Ordered,
+        status: poStatus,
         companyId: company.id,
         items: {
           create: [
@@ -293,6 +314,25 @@ export async function generateDraftPOFromAI(productId: string, quantity?: number
         items: { include: { product: true } },
       },
     });
+
+    // If status is Delivered, immediately increment product stock and log stock movement
+    if (poStatus === PurchaseStatus.Delivered) {
+      await prisma.product.update({
+        where: { id: product.id },
+        data: { stock: { increment: restockQty } },
+      });
+
+      await prisma.stockMovement.create({
+        data: {
+          type: "STOCK_IN",
+          quantity: restockQty,
+          reference: poNumber,
+          notes: `Restock AI Advisor - Purchase Order ${poNumber} Received (+${restockQty} unit)`,
+          productId: product.id,
+          companyId: company.id,
+        },
+      });
+    }
 
     // Create notification entry for tracking
     try {
