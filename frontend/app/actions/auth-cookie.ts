@@ -60,6 +60,7 @@ export async function clearAuthCookies() {
   cookieStore.delete('refresh_token');
   cookieStore.delete('auth_token');
   cookieStore.delete('user_role');
+  cookieStore.delete('flow_active_branch_id');
 }
 
 /**

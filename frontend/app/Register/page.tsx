@@ -53,12 +53,19 @@ export default function RegisterPage() {
     try {
       const serverRes = await registerUser({ name, companyName, email, password });
       if (serverRes.success && serverRes.user) {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("flowerp_products_cache");
+          localStorage.removeItem("flowerp_active_shift");
+          localStorage.removeItem("flowerp_held_orders");
+          localStorage.removeItem("flowerp_offline_queue");
+          localStorage.removeItem("flowerp_transfers_intransit");
+        }
         localStorage.setItem("user", JSON.stringify(serverRes.user));
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("user_login"));
         }
         await setAuthCookie("session-token", "refresh-token", serverRes.user.id, serverRes.user.role);
-        router.push("/Dashboard");
+        window.location.href = "/Dashboard";
         return;
       } else if (serverRes.error) {
         setErrorMsg(serverRes.error);

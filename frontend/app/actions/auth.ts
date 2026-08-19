@@ -43,6 +43,11 @@ export async function loginUser(formData: { email?: string; password?: string })
     const cookieStore = await cookies();
     cookieStore.set("auth_token", user.id, { httpOnly: true, path: "/", maxAge: 365 * 24 * 60 * 60 });
     cookieStore.set("user_role", (user.role || "OWNER").toUpperCase(), { httpOnly: true, path: "/", maxAge: 365 * 24 * 60 * 60 });
+    if (user.companyId) {
+      cookieStore.set("flow_active_branch_id", user.companyId, { httpOnly: true, path: "/", maxAge: 365 * 24 * 60 * 60 });
+    } else {
+      cookieStore.delete("flow_active_branch_id");
+    }
 
     return {
       success: true,
@@ -104,6 +109,7 @@ export async function registerUser(formData: {
     const cookieStore = await cookies();
     cookieStore.set("auth_token", user.id, { httpOnly: true, path: "/", maxAge: 365 * 24 * 60 * 60 });
     cookieStore.set("user_role", "OWNER", { httpOnly: true, path: "/", maxAge: 365 * 24 * 60 * 60 });
+    cookieStore.set("flow_active_branch_id", company.id, { httpOnly: true, path: "/", maxAge: 365 * 24 * 60 * 60 });
 
     return {
       success: true,
@@ -127,6 +133,7 @@ export async function registerUser(formData: {
 export async function logoutUser() {
   const cookieStore = await cookies();
   cookieStore.delete("auth_token");
+  cookieStore.delete("flow_active_branch_id");
   await clearAuthCookies();
   return { success: true };
 }

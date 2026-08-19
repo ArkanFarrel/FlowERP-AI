@@ -45,8 +45,15 @@ export default function Sidebar({ sidebarOpen, onLogout }: SidebarProps) {
       return;
     }
     await logoutUser();
-    localStorage.removeItem("user");
-    router.replace("/Login");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("user");
+      localStorage.removeItem("flowerp_products_cache");
+      localStorage.removeItem("flowerp_active_shift");
+      localStorage.removeItem("flowerp_held_orders");
+      localStorage.removeItem("flowerp_offline_queue");
+      localStorage.removeItem("flowerp_transfers_intransit");
+    }
+    window.location.href = "/Login";
   };
 
   const userRole = (user.role || 'OWNER').toUpperCase() as Role;

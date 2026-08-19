@@ -2,26 +2,29 @@
 
 import { prisma } from '@/lib/prisma';
 import { cookies } from 'next/headers';
+import fs from 'fs';
+import path from 'path';
+
+const branchesDataPath = path.join(process.cwd(), 'data', 'user_branches.json');
+
+function getUserBranchesData(): Record<string, string[]> {
+  try {
+    if (fs.existsSync(branchesDataPath)) {
+      const content = fs.readFileSync(branchesDataPath, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
 
 export async function getCurrentCompany() {
   try {
     const cookieStore = await cookies();
     
-    // Check branch override cookie first
-    const branchId = cookieStore.get('flow_active_branch_id')?.value;
-    if (branchId) {
-      const branch = await prisma.company.findUnique({ where: { id: branchId } });
-      if (branch) {
-        return {
-          id: branch.id,
-          name: branch.name,
-          currency: branch.currency || 'USD',
-          taxRate: branch.taxRate || 10,
-        };
-      }
-    }
-
     const userId = cookieStore.get('auth_token')?.value;
+    const branchId = cookieStore.get('flow_active_branch_id')?.value;
 
     if (userId) {
       const user = await prisma.user.findUnique({
@@ -29,13 +32,31 @@ export async function getCurrentCompany() {
         include: { company: true },
       });
 
-      if (user && user.company) {
-        return {
-          id: user.company.id,
-          name: user.company.name,
-          currency: user.company.currency || 'USD',
-          taxRate: user.company.taxRate || 10,
-        };
+      if (user) {
+        const branchesData = getUserBranchesData();
+        const allowedBranches = new Set([user.companyId, ...(branchesData[userId] || [])].filter(Boolean));
+
+        // Only allow branchId if it strictly belongs to this user
+        if (branchId && allowedBranches.has(branchId)) {
+          const branch = await prisma.company.findUnique({ where: { id: branchId } });
+          if (branch) {
+            return {
+              id: branch.id,
+              name: branch.name,
+              currency: branch.currency || 'USD',
+              taxRate: branch.taxRate || 10,
+            };
+          }
+        }
+
+        if (user.company) {
+          return {
+            id: user.company.id,
+            name: user.company.name,
+            currency: user.company.currency || 'USD',
+            taxRate: user.company.taxRate || 10,
+          };
+        }
       }
     }
   } catch (err) {
