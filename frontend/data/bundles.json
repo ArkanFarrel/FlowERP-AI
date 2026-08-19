@@ -1,1 +1,34 @@
-[]
+[
+  {
+    "id": "1fca2dfa-5101-4fe9-838f-5cc4ae2524d7",
+    "name": "Sembako Hemat",
+    "sku": "BNDL-001",
+    "description": "",
+    "category": "Bundles",
+    "bundlePrice": 200,
+    "totalComponentCost": 0,
+    "profitMarginPercent": 0,
+    "maxBuildableUnits": 0,
+    "components": [
+      {
+        "productId": "cmsr99dhz0002ucvlr14e3kst",
+        "productName": "Meja Belajar",
+        "sku": "PRD-2026-2262",
+        "costPrice": 0,
+        "sellingPrice": 282,
+        "currentStock": 49,
+        "quantityRequired": 1
+      },
+      {
+        "productId": "cmsofqllo000qckvl68dm8nod",
+        "productName": "Ken",
+        "sku": "PRD-2026-1891",
+        "costPrice": 0,
+        "sellingPrice": 64,
+        "currentStock": 94,
+        "quantityRequired": 1
+      }
+    ],
+    "createdAt": "2026-08-19T04:33:29.149Z"
+  }
+]

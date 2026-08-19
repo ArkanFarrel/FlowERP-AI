@@ -3,16 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { stockMovementSchema } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
-
-async function ensureDefaultCompany() {
-  let company = await prisma.company.findFirst();
-  if (!company) {
-    company = await prisma.company.create({
-      data: { name: "FlowERP Store", currency: "USD", taxRate: 10 },
-    });
-  }
-  return company;
-}
+import { ensureDefaultCompany } from "@/lib/company";
 
 export async function getInventory() {
   try {

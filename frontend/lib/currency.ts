@@ -66,25 +66,33 @@ export function formatPrice(amountInUSD: number | string): string {
   return `${symbol}${convertedValue.toLocaleString("en-US", { minimumFractionDigits: 0 })}`;
 }
 
+export const CURRENCY_OPTIONS = [
+  { code: "USD", symbol: "$", name: "US Dollar ($)" },
+  { code: "IDR", symbol: "Rp", name: "Indonesian Rupiah (Rp)" },
+  { code: "EUR", symbol: "€", name: "Euro (€)" },
+  { code: "SGD", symbol: "S$", name: "Singapore Dollar (S$)" },
+];
+
+export function getCurrencyPresets(currency?: string): number[] {
+  const curr = currency || getSelectedCurrency();
+  switch (curr) {
+    case "IDR":
+      return [50000, 100000, 200000, 500000];
+    case "EUR":
+    case "SGD":
+    case "USD":
+    default:
+      return [10, 20, 50, 100, 200];
+  }
+}
+
 /**
- * Fetch live real-time exchange rates from public API (USD base) and cache locally.
+ * Instant exchange rates resolution (fast offline & local cache).
  */
 export async function syncLiveExchangeRates() {
   if (typeof window === "undefined") return;
-  try {
-    const res = await fetch("https://open.er-api.com/v6/latest/USD");
-    const data = await res.json();
-    if (data && data.result === "success" && data.rates) {
-      const liveRates = {
-        USD: 1.0,
-        IDR: Math.round(data.rates.IDR || 16000),
-        EUR: data.rates.EUR || 0.92,
-        SGD: data.rates.SGD || 1.35,
-      };
-      localStorage.setItem("exchange_rates", JSON.stringify(liveRates));
-      window.dispatchEvent(new Event("currency_change"));
-    }
-  } catch (err) {
-    console.warn("Using fallback exchange rates:", err);
+  const cachedRates = localStorage.getItem("exchange_rates");
+  if (!cachedRates) {
+    localStorage.setItem("exchange_rates", JSON.stringify(DEFAULT_RATES));
   }
 }

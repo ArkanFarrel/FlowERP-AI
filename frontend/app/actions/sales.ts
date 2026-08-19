@@ -284,10 +284,14 @@ export async function createSalesOrder(data: {
 export async function createPOSCheckoutOrder(data: {
   orderNumber: string;
   customerName: string;
+  customerId?: string;
   paymentMethod: string;
   subtotal: number;
   tax: number;
   discount: number;
+  loyaltyDiscount?: number;
+  pointsRedeemed?: number;
+  pointsEarned?: number;
   totalAmount: number;
   cashTendered: number;
   changeAmount: number;
@@ -303,9 +307,18 @@ export async function createPOSCheckoutOrder(data: {
     const company = await ensureDefaultCompany();
     const orderNo = data.orderNumber || `POS-${Math.floor(10000 + Math.random() * 90000)}`;
 
-    let customer = await prisma.customer.findFirst({
-      where: { companyId: company.id, name: data.customerName || "Walk-in Customer" },
-    });
+    let customer = null;
+    if (data.customerId) {
+      customer = await prisma.customer.findFirst({
+        where: { id: data.customerId, companyId: company.id },
+      });
+    }
+
+    if (!customer) {
+      customer = await prisma.customer.findFirst({
+        where: { companyId: company.id, name: data.customerName || "Walk-in Customer" },
+      });
+    }
 
     if (!customer) {
       customer = await prisma.customer.create({
@@ -318,6 +331,22 @@ export async function createPOSCheckoutOrder(data: {
           city: "Store",
           country: "Indonesia",
           companyId: company.id,
+        },
+      });
+    }
+
+    // Update customer loyalty points & lifetime value if registered customer
+    if (customer && customer.name !== "Walk-in Customer") {
+      const earned = data.pointsEarned ?? Math.max(1, Math.floor((data.totalAmount || 0) / 10));
+      const redeemed = data.pointsRedeemed || 0;
+      const currentPts = customer.loyaltyPoints || 0;
+      const newPts = Math.max(0, currentPts - redeemed + earned);
+
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          loyaltyPoints: newPts,
+          lifetimeValue: (customer.lifetimeValue || 0) + (Number(data.totalAmount) || 0),
         },
       });
     }

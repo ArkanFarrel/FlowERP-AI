@@ -157,11 +157,14 @@
   }
 
   body.printing-receipt #receipt-print-area,
-  body.printing-receipt #receipt-print-area * {
+  body.printing-receipt #receipt-print-area *,
+  body.printing-receipt #thermal-receipt-printable,
+  body.printing-receipt #thermal-receipt-printable * {
     visibility: visible !important;
   }
 
-  body.printing-receipt #receipt-print-area {
+  body.printing-receipt #receipt-print-area,
+  body.printing-receipt #thermal-receipt-printable {
     position: fixed !important;
     left: 50% !important;
     top: 0 !important;

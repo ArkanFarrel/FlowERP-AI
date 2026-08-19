@@ -90,6 +90,15 @@ const PROTECTED_PATHS = [
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  // Case normalization redirect
+  if (pathname === '/login') {
+    return NextResponse.redirect(new URL('/Login', request.url));
+  }
+  if (pathname === '/register') {
+    return NextResponse.redirect(new URL('/Register', request.url));
+  }
+
   const authToken = request.cookies.get('auth_token')?.value || request.cookies.get('access_token')?.value;
   const userRole = (request.cookies.get('user_role')?.value || 'OWNER').toUpperCase() as UserRole;
 
@@ -121,6 +130,8 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/login',
+    '/register',
     '/Dashboard/:path*',
     '/Products/:path*',
     '/ProductInventory/:path*',
@@ -134,3 +145,4 @@ export const config = {
     '/Settings/:path*',
   ],
 };
+
