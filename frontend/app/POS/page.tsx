@@ -19,13 +19,18 @@ import {
   RefreshCw,
   Package,
   AlertCircle,
+  PauseCircle,
+  Clock,
+  Wifi,
+  WifiOff
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { getInventory } from "@/app/actions/inventory";
 import { createPOSCheckoutOrder } from "@/app/actions/sales";
 import { formatPrice, syncLiveExchangeRates } from "@/lib/currency";
+import { toast } from "sonner";
 
 interface ProductItem {
   id: string;
@@ -60,12 +65,53 @@ interface CompletedReceipt {
   total: number;
   cashTendered: number;
   changeAmount: number;
+  isOffline?: boolean;
+}
+
+interface ShiftTransaction {
+  orderNumber: string;
+  total: number;
+  paymentMethod: string;
+  time: string;
+}
+
+interface ShiftData {
+  kasir: string;
+  modalAwal: number;
+  startTime: string;
+  notes: string;
+  transactions: ShiftTransaction[];
+}
+
+interface HeldOrder {
+  holdId: string;
+  customerName: string;
+  cart: CartItem[];
+  discountPercent: number;
+  timestamp: string;
 }
 
 export default function POSTerminalPage() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isDark, setIsDark] = useState(false);
+
+  // Feature C: Offline-First PWA
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+
+  // Feature A: Shift Management
+  const [activeShift, setActiveShift] = useState<ShiftData | null>(null);
+  const [isOpenShiftModalOpen, setIsOpenShiftModalOpen] = useState(false);
+  const [isZReportOpen, setIsZReportOpen] = useState(false);
+  
+  const [shiftKasir, setShiftKasir] = useState("");
+  const [shiftModal, setShiftModal] = useState("");
+  const [shiftNotes, setShiftNotes] = useState("");
+
+  // Feature B: Held Orders
+  const [heldOrders, setHeldOrders] = useState<HeldOrder[]>([]);
+  const [isHeldOrdersOpen, setIsHeldOrdersOpen] = useState(false);
 
   // Products & Inventory Data
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -86,13 +132,93 @@ export default function POSTerminalPage() {
   const [completedReceipt, setCompletedReceipt] = useState<CompletedReceipt | null>(null);
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
 
+  // Process Offline Queue
+  const processOfflineQueue = async () => {
+    try {
+      const queueRaw = localStorage.getItem('flowerp_offline_queue');
+      if (!queueRaw) return;
+      const q = JSON.parse(queueRaw);
+      if (!Array.isArray(q) || q.length === 0) return;
+      
+      let processed = 0;
+      for (const order of q) {
+        try {
+          const res = await createPOSCheckoutOrder(order);
+          if (res && res.success) processed++;
+        } catch (e) {
+          console.error("Failed to sync offline order", e);
+        }
+      }
+      
+      if (processed === q.length) {
+        localStorage.removeItem('flowerp_offline_queue');
+        setOfflineQueueCount(0);
+        if (toast) toast.success(`Synced ${processed} offline orders!`);
+      } else {
+        const remaining = q.slice(processed);
+        localStorage.setItem('flowerp_offline_queue', JSON.stringify(remaining));
+        setOfflineQueueCount(remaining.length);
+        if (toast) toast.info(`Synced ${processed} orders, ${remaining.length} remaining.`);
+      }
+    } catch (err) {
+      console.error("Error processing offline queue", err);
+    }
+  };
+
+  useEffect(() => {
+    // Offline status detection
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
+    const goOnline = () => { 
+      setIsOnline(true); 
+      processOfflineQueue(); 
+    };
+    const goOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    
+    const q = JSON.parse(localStorage.getItem('flowerp_offline_queue') || '[]');
+    setOfflineQueueCount(q.length);
+
+    // Initial data load
+    syncLiveExchangeRates();
+    fetchProducts();
+    
+    // Shift Data
+    const storedShift = localStorage.getItem('flowerp_active_shift');
+    if (storedShift) {
+      try {
+        setActiveShift(JSON.parse(storedShift));
+      } catch (e) {
+        setIsOpenShiftModalOpen(true);
+      }
+    } else {
+      setIsOpenShiftModalOpen(true);
+    }
+
+    // Held Orders
+    const storedHeld = localStorage.getItem('flowerp_held_orders');
+    if (storedHeld) {
+      try {
+        setHeldOrders(JSON.parse(storedHeld));
+      } catch(e) {}
+    }
+    
+    return () => { 
+      window.removeEventListener('online', goOnline); 
+      window.removeEventListener('offline', goOffline); 
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchProducts = async () => {
     setIsLoadingProducts(true);
     try {
       const { getProducts } = await import("@/app/actions/products");
       const res = await getProducts();
+      let mapped: ProductItem[] = [];
       if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
-        const mapped: ProductItem[] = res.data.map((p: Record<string, unknown>, idx: number) => ({
+        mapped = res.data.map((p: Record<string, unknown>, idx: number) => ({
           id: String(p.id || idx),
           dbId: String(p.id || ''),
           product: String(p.name || ''),
@@ -103,13 +229,12 @@ export default function POSTerminalPage() {
           unitPrice: Number(p.sellingPrice) || 0,
           status: Number(p.stock || 0) === 0 ? "Out of Stock" : Number(p.stock || 0) <= 15 ? "Low Stock" : "In Stock",
         }));
-        setProducts(mapped);
       } else {
         // Fallback getInventory
         const invRes = await getInventory();
         const rows = invRes?.data || [];
         if (rows && rows.length > 0) {
-          const mapped: ProductItem[] = rows.map((r: Record<string, unknown>, idx: number) => {
+          mapped = rows.map((r: Record<string, unknown>, idx: number) => {
             const rawPrice =
               typeof r.price === "string"
                 ? parseFloat(r.price.replace(/[^0-9.]/g, "")) || 0
@@ -126,23 +251,85 @@ export default function POSTerminalPage() {
               status: String(r.status || "In Stock"),
             };
           });
-          setProducts(mapped);
-        } else {
-          setProducts([]);
         }
       }
+      setProducts(mapped);
+      localStorage.setItem('flowerp_products_cache', JSON.stringify(mapped));
     } catch (err) {
       console.error("Failed to load products for POS:", err);
+      // Attempt load from cache
+      const cached = localStorage.getItem('flowerp_products_cache');
+      if (cached) {
+        try {
+          setProducts(JSON.parse(cached));
+        } catch(e) {}
+      }
     } finally {
       setIsLoadingProducts(false);
     }
   };
 
-  useEffect(() => {
-    syncLiveExchangeRates();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchProducts();
-  }, []);
+  const handleOpenShift = () => {
+    if (!shiftKasir || !shiftModal) return;
+    const newShift: ShiftData = {
+      kasir: shiftKasir,
+      modalAwal: Number(shiftModal),
+      notes: shiftNotes,
+      startTime: new Date().toLocaleString("id-ID"),
+      transactions: []
+    };
+    setActiveShift(newShift);
+    localStorage.setItem('flowerp_active_shift', JSON.stringify(newShift));
+    setIsOpenShiftModalOpen(false);
+    if (toast) toast.success("Shift berhasil dibuka!");
+  };
+
+  const handleCloseShift = () => {
+    setActiveShift(null);
+    localStorage.removeItem('flowerp_active_shift');
+    setIsZReportOpen(false);
+    setShiftKasir("");
+    setShiftModal("");
+    setShiftNotes("");
+    setIsOpenShiftModalOpen(true);
+    if (toast) toast.success("Shift berhasil ditutup.");
+  };
+
+  const handleHoldOrder = () => {
+    if (cart.length === 0) return;
+    if (heldOrders.length >= 5) {
+      // Custom internal message per spec
+      return;
+    }
+    const newHold: HeldOrder = {
+      holdId: `HOLD-${Date.now()}`,
+      customerName: customerName.trim() || "Walk-in Customer",
+      cart: [...cart],
+      discountPercent,
+      timestamp: new Date().toLocaleString("id-ID")
+    };
+    const updated = [...heldOrders, newHold];
+    setHeldOrders(updated);
+    localStorage.setItem('flowerp_held_orders', JSON.stringify(updated));
+    handleClearCart();
+    if (toast) toast.success("Order ditahan.");
+  };
+
+  const handleResumeHold = (holdId: string) => {
+    const hold = heldOrders.find(h => h.holdId === holdId);
+    if (!hold) return;
+    setCart(hold.cart);
+    setCustomerName(hold.customerName);
+    setDiscountPercent(hold.discountPercent);
+    handleDeleteHold(holdId);
+    setIsHeldOrdersOpen(false);
+  };
+
+  const handleDeleteHold = (holdId: string) => {
+    const updated = heldOrders.filter(h => h.holdId !== holdId);
+    setHeldOrders(updated);
+    localStorage.setItem('flowerp_held_orders', JSON.stringify(updated));
+  };
 
   const categories = useMemo(() => {
     const setCat = new Set<string>();
@@ -164,7 +351,6 @@ export default function POSTerminalPage() {
     });
   }, [products, searchQuery, selectedCategory]);
 
-  // Cart Action Handlers
   const handleAddToCart = (product: ProductItem) => {
     if (product.stock <= 0) return;
 
@@ -216,9 +402,9 @@ export default function POSTerminalPage() {
     setCart([]);
     setCashTenderedInput("");
     setDiscountPercent(0);
+    setCustomerName("Walk-in Customer");
   };
 
-  // Math Computations
   const subtotal = useMemo(() => {
     return cart.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
   }, [cart]);
@@ -252,56 +438,110 @@ export default function POSTerminalPage() {
   }, [cart, paymentMethod, cashTenderedVal, grandTotal]);
 
   const handleProcessCheckout = async () => {
+    if (!activeShift) {
+      toast.info("Silakan buka shift kasir terlebih dahulu untuk memproses transaksi.");
+      setIsOpenShiftModalOpen(true);
+      return;
+    }
     if (!canCheckout) return;
     setIsProcessingCheckout(true);
 
     const generatedOrderNo = `POS-${Math.floor(10000 + Math.random() * 90000)}`;
+    const payload = {
+      orderNumber: generatedOrderNo,
+      customerName: customerName.trim() || "Walk-in Customer",
+      paymentMethod,
+      subtotal,
+      tax: taxAmount,
+      discount: discountAmount,
+      totalAmount: grandTotal,
+      cashTendered: paymentMethod === "Cash" ? cashTenderedVal : grandTotal,
+      changeAmount,
+      items: cart.map((c) => ({
+        productId: c.id,
+        productName: c.product,
+        quantity: c.quantity,
+        unitPrice: c.unitPrice,
+        subtotal: c.unitPrice * c.quantity,
+      })),
+    };
+
+    const receipt: CompletedReceipt = {
+      orderNumber: generatedOrderNo,
+      date: new Date().toLocaleString("id-ID"),
+      customerName: customerName.trim() || "Walk-in Customer",
+      paymentMethod,
+      items: [...cart],
+      subtotal,
+      discount: discountAmount,
+      tax: taxAmount,
+      total: grandTotal,
+      cashTendered: paymentMethod === "Cash" ? cashTenderedVal : grandTotal,
+      changeAmount,
+      isOffline: !isOnline
+    };
 
     try {
-      const res = await createPOSCheckoutOrder({
-        orderNumber: generatedOrderNo,
-        customerName: customerName.trim() || "Walk-in Customer",
-        paymentMethod,
-        subtotal,
-        tax: taxAmount,
-        discount: discountAmount,
-        totalAmount: grandTotal,
-        cashTendered: paymentMethod === "Cash" ? cashTenderedVal : grandTotal,
-        changeAmount,
-        items: cart.map((c) => ({
-          productId: c.id,
-          productName: c.product,
-          quantity: c.quantity,
-          unitPrice: c.unitPrice,
-          subtotal: c.unitPrice * c.quantity,
-        })),
-      });
-
-      if (res.success) {
-        const receipt: CompletedReceipt = {
-          orderNumber: generatedOrderNo,
-          date: new Date().toLocaleString("id-ID"),
-          customerName: customerName.trim() || "Walk-in Customer",
-          paymentMethod,
-          items: [...cart],
-          subtotal,
-          discount: discountAmount,
-          tax: taxAmount,
-          total: grandTotal,
-          cashTendered: paymentMethod === "Cash" ? cashTenderedVal : grandTotal,
-          changeAmount,
-        };
-
+      if (!isOnline) {
+        // Queue for offline processing
+        const q = JSON.parse(localStorage.getItem('flowerp_offline_queue') || '[]');
+        q.push(payload);
+        localStorage.setItem('flowerp_offline_queue', JSON.stringify(q));
+        setOfflineQueueCount(q.length);
+        
+        // Process UI success locally
+        updateShiftAfterTransaction(generatedOrderNo, grandTotal, paymentMethod);
         setCompletedReceipt(receipt);
         setIsReceiptModalOpen(true);
         handleClearCart();
-        fetchProducts();
+      } else {
+        const res = await createPOSCheckoutOrder(payload);
+        if (res && res.success) {
+          updateShiftAfterTransaction(generatedOrderNo, grandTotal, paymentMethod);
+          setCompletedReceipt(receipt);
+          setIsReceiptModalOpen(true);
+          handleClearCart();
+          fetchProducts();
+        } else {
+          // If network failed here despite being "online"
+          throw new Error("API failed");
+        }
       }
     } catch (err) {
       console.error("POS Checkout failed:", err);
+      // Fallback to queue if unexpected network error
+      const q = JSON.parse(localStorage.getItem('flowerp_offline_queue') || '[]');
+      q.push(payload);
+      localStorage.setItem('flowerp_offline_queue', JSON.stringify(q));
+      setOfflineQueueCount(q.length);
+      receipt.isOffline = true;
+      updateShiftAfterTransaction(generatedOrderNo, grandTotal, paymentMethod);
+      setCompletedReceipt(receipt);
+      setIsReceiptModalOpen(true);
+      handleClearCart();
     } finally {
       setIsProcessingCheckout(false);
     }
+  };
+
+  const updateShiftAfterTransaction = (orderNo: string, total: number, paymentMethod: string) => {
+    setActiveShift(prev => {
+      if (!prev) return prev;
+      const updated = {
+        ...prev,
+        transactions: [
+          ...prev.transactions,
+          {
+            orderNumber: orderNo,
+            total,
+            paymentMethod,
+            time: new Date().toLocaleString("id-ID")
+          }
+        ]
+      };
+      localStorage.setItem('flowerp_active_shift', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const handleLogout = () => {
@@ -310,18 +550,19 @@ export default function POSTerminalPage() {
     router.push("/Login");
   };
 
+  const totalShiftSales = useMemo(() => {
+    return activeShift?.transactions.reduce((acc, t) => acc + t.total, 0) || 0;
+  }, [activeShift]);
+
   return (
     <div
       className={`flex h-screen overflow-hidden ${
         isDark ? "dark bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
       }`}
     >
-      {/* Sidebar */}
       <Sidebar sidebarOpen={sidebarOpen} onLogout={handleLogout} />
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Topbar */}
         <Topbar
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
@@ -329,11 +570,46 @@ export default function POSTerminalPage() {
           setIsDark={setIsDark}
         />
 
+        {/* Feature A: Active Shift Bar / Notice */}
+        {activeShift ? (
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800 px-6 py-2 flex items-center justify-between">
+            <div className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+              Shift Aktif • <span className="font-bold">{activeShift.kasir}</span> • Mulai: {activeShift.startTime} • Modal: {formatPrice(activeShift.modalAwal)}
+            </div>
+            <Button onClick={() => setIsZReportOpen(true)} variant="outline" size="sm" className="text-rose-600 border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 h-8 cursor-pointer">
+              Tutup Shift
+            </Button>
+          </div>
+        ) : (
+          <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-medium text-amber-800 dark:text-amber-200 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>Shift belum dibuka — Anda dalam mode peninjauan katalog. Buka shift untuk memproses transaksi kasir.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => router.push('/Dashboard')}
+                variant="ghost"
+                size="sm"
+                className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-amber-100/70 dark:hover:bg-amber-900/40 h-8 text-xs cursor-pointer"
+              >
+                ← Kembali ke Dashboard
+              </Button>
+              <Button
+                onClick={() => setIsOpenShiftModalOpen(true)}
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs h-8 cursor-pointer shadow-xs"
+              >
+                Buka Shift Kasir
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* POS Body Container */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-y-auto lg:overflow-hidden bg-slate-100/60 dark:bg-slate-950">
-          {/* LEFT PANEL: PRODUCT CATALOG & BARCODE SEARCH (COL 7) */}
+          {/* LEFT PANEL */}
           <div className="lg:col-span-7 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden min-h-125">
-            {/* Header Toolbar */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -344,23 +620,52 @@ export default function POSTerminalPage() {
                     <h1 className="text-lg font-bold text-slate-900 dark:text-white">
                       POS Cashier Terminal
                     </h1>
-                    <p className="text-xs text-slate-500">
-                      Fast multi-item checkout & real-time inventory sync
-                    </p>
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <span>Fast multi-item checkout</span>
+                      {/* Feature C: Offline Status */}
+                      <span className="flex items-center gap-1">
+                        {isOnline ? (
+                          <><div className="h-2 w-2 rounded-full bg-emerald-500"></div> Online</>
+                        ) : (
+                          <><div className="h-2 w-2 rounded-full bg-rose-500"></div> Offline</>
+                        )}
+                        {offlineQueueCount > 0 && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 font-semibold text-[10px]">
+                            {offlineQueueCount} Pending
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={fetchProducts}
-                  className="rounded-xl text-xs flex items-center gap-1.5"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${isLoadingProducts ? "animate-spin" : ""}`} />
-                  Refresh Catalog
-                </Button>
+                <div className="flex gap-2">
+                  {/* Feature B: Hold Orders Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsHeldOrdersOpen(true)}
+                    className="rounded-xl text-xs flex items-center gap-1.5 relative border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/40 cursor-pointer"
+                  >
+                    <Clock className="h-3.5 w-3.5" />
+                    Pesanan Ditahan
+                    {heldOrders.length > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white">
+                        {heldOrders.length}
+                      </span>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchProducts}
+                    className="rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoadingProducts ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                </div>
               </div>
 
-              {/* Search & Category Pills */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -373,7 +678,6 @@ export default function POSTerminalPage() {
                 </div>
               </div>
 
-              {/* Category Pills Slider */}
               <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
                 {categories.map((cat) => (
                   <button
@@ -391,7 +695,6 @@ export default function POSTerminalPage() {
               </div>
             </div>
 
-            {/* Product Grid Area */}
             <div className="flex-1 overflow-y-auto p-4">
               {isLoadingProducts ? (
                 <div className="flex flex-col items-center justify-center h-64 text-slate-400">
@@ -424,7 +727,6 @@ export default function POSTerminalPage() {
                             : "border-slate-200/80 bg-white hover:border-sky-500 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-500 cursor-pointer"
                         }`}
                       >
-                        {/* Cart Qty Badge */}
                         {cartEntry && (
                           <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-sky-600 text-xs font-black text-white shadow-md">
                             {cartEntry.quantity}
@@ -481,11 +783,10 @@ export default function POSTerminalPage() {
             </div>
           </div>
 
-          {/* RIGHT PANEL: SHOPPING CART & CHECKOUT CALCULATOR (COL 5) */}
+          {/* RIGHT PANEL */}
           <div className="lg:col-span-5 flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
-            {/* Customer Info Bar */}
-            <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex-1 pr-3">
+            <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+              <div className="flex-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Customer Name
                 </label>
@@ -496,18 +797,32 @@ export default function POSTerminalPage() {
                   className="h-8 text-xs mt-0.5 rounded-lg border-slate-200 dark:border-slate-800"
                 />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearCart}
-                disabled={cart.length === 0}
-                className="text-rose-600 hover:text-rose-700 text-xs hover:bg-rose-50 dark:hover:bg-rose-950/40"
-              >
-                Clear Cart
-              </Button>
+              <div className="flex flex-col items-end gap-1 mt-4">
+                <div className="flex gap-1">
+                  {/* Feature B: Hold Order button */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleHoldOrder}
+                    disabled={cart.length === 0}
+                    className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                    title="Hold Order"
+                  >
+                    <PauseCircle className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearCart}
+                    disabled={cart.length === 0}
+                    className="text-rose-600 hover:text-rose-700 text-xs hover:bg-rose-50 dark:hover:bg-rose-950/40 h-8 cursor-pointer"
+                  >
+                    Clear Cart
+                  </Button>
+                </div>
+              </div>
             </div>
 
-            {/* Cart Items List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center">
@@ -537,12 +852,11 @@ export default function POSTerminalPage() {
                       </p>
                     </div>
 
-                    {/* Quantity Controls */}
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => handleUpdateQuantity(item.id, -1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
                       >
                         <Minus className="h-3.5 w-3.5" />
                       </button>
@@ -555,7 +869,7 @@ export default function POSTerminalPage() {
                         type="button"
                         onClick={() => handleUpdateQuantity(item.id, 1)}
                         disabled={item.quantity >= item.stockAvailable}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
                       >
                         <Plus className="h-3.5 w-3.5" />
                       </button>
@@ -563,7 +877,7 @@ export default function POSTerminalPage() {
                       <button
                         type="button"
                         onClick={() => handleRemoveFromCart(item.id)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-400 ml-1"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-950 dark:text-rose-400 ml-1 cursor-pointer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -573,9 +887,7 @@ export default function POSTerminalPage() {
               )}
             </div>
 
-            {/* Payment & Checkout Summary Footer */}
             <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 space-y-3">
-              {/* Payment Method Tabs */}
               <div className="grid grid-cols-4 gap-1.5">
                 {[
                   { id: "Cash" as const, label: "Cash", icon: Banknote },
@@ -603,7 +915,6 @@ export default function POSTerminalPage() {
                 })}
               </div>
 
-              {/* Cash Input Presets (If Cash Selected) */}
               {paymentMethod === "Cash" && (
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between text-xs">
@@ -623,12 +934,11 @@ export default function POSTerminalPage() {
                     onChange={(e) => setCashTenderedInput(e.target.value)}
                     className="h-10 text-sm font-bold text-sky-600 rounded-xl"
                   />
-                  {/* Presets */}
                   <div className="flex items-center gap-1.5 overflow-x-auto">
                     <button
                       type="button"
                       onClick={() => setCashTenderedInput(String(grandTotal))}
-                      className="px-2.5 py-1 bg-sky-50 text-sky-700 rounded-lg text-xs font-semibold hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300"
+                      className="px-2.5 py-1 bg-sky-50 text-sky-700 rounded-lg text-xs font-semibold hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300 whitespace-nowrap cursor-pointer"
                     >
                       Pas (Exact)
                     </button>
@@ -637,7 +947,7 @@ export default function POSTerminalPage() {
                         key={preset}
                         type="button"
                         onClick={() => setCashTenderedInput(String(preset))}
-                        className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                        className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 whitespace-nowrap cursor-pointer"
                       >
                         {formatPrice(preset)}
                       </button>
@@ -646,7 +956,6 @@ export default function POSTerminalPage() {
                 </div>
               )}
 
-              {/* Calculations Summary */}
               <div className="space-y-1.5 text-xs border-t border-slate-100 dark:border-slate-800 pt-2">
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Subtotal ({cart.reduce((a, b) => a + b.quantity, 0)} items)</span>
@@ -673,19 +982,24 @@ export default function POSTerminalPage() {
                 </div>
               </div>
 
-              {/* Checkout Button */}
               <Button
                 onClick={handleProcessCheckout}
                 disabled={!canCheckout || isProcessingCheckout}
-                className="w-full h-12 rounded-2xl bg-sky-600 text-white font-bold text-sm hover:bg-sky-700 transition cursor-pointer shadow-md disabled:opacity-50"
+                className={`w-full h-12 rounded-2xl font-bold text-sm transition cursor-pointer shadow-md disabled:opacity-50 ${
+                  !activeShift ? "bg-amber-600 hover:bg-amber-700 text-white" : "bg-sky-600 hover:bg-sky-700 text-white"
+                }`}
               >
                 {isProcessingCheckout ? (
                   <div className="flex items-center gap-2">
                     <RefreshCw className="h-4 w-4 animate-spin" /> Processing...
                   </div>
+                ) : !activeShift ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <AlertCircle className="h-5 w-5" /> Buka Shift untuk Selesaikan Transaksi
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center gap-2">
-                    <CheckCircle2 className="h-5 w-5" /> Complete POS Transaction
+                    <CheckCircle2 className="h-5 w-5" /> {isOnline ? "Complete POS Transaction" : "Complete Offline Order"}
                   </div>
                 )}
               </Button>
@@ -694,13 +1008,154 @@ export default function POSTerminalPage() {
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* THERMAL CASHIER RECEIPT MODAL (58mm/80mm PRINTABLE STRUK)                 */}
-      {/* ========================================================================= */}
+      {/* Feature A: Buka Shift Modal */}
+      <Dialog open={isOpenShiftModalOpen} onOpenChange={setIsOpenShiftModalOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>Buka Shift Kasir</DialogTitle>
+            <DialogDescription>
+              Silakan isi data kasir dan modal awal untuk memulai transaksi kasir, atau tutup untuk mode peninjauan katalog.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Nama Kasir <span className="text-rose-500">*</span></label>
+              <Input value={shiftKasir} onChange={e => setShiftKasir(e.target.value)} placeholder="Misal: Budi" />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Modal Awal <span className="text-rose-500">*</span></label>
+              <Input type="number" value={shiftModal} onChange={e => setShiftModal(e.target.value)} placeholder="Misal: 500000" />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Catatan (Opsional)</label>
+              <Input value={shiftNotes} onChange={e => setShiftNotes(e.target.value)} placeholder="Catatan shift..." />
+            </div>
+          </div>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between items-center">
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => router.push("/Dashboard")}
+                className="text-slate-600 dark:text-slate-400 text-xs cursor-pointer h-9 px-3"
+              >
+                ← Dashboard
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsOpenShiftModalOpen(false)}
+                className="text-xs cursor-pointer h-9 px-3"
+              >
+                Nanti Saja
+              </Button>
+            </div>
+            <Button
+              type="button"
+              onClick={handleOpenShift}
+              disabled={!shiftKasir || !shiftModal}
+              className="w-full sm:w-auto bg-sky-600 hover:bg-sky-700 text-white font-semibold cursor-pointer h-9 px-4"
+            >
+              Buka Shift
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Feature A: Z-Report (Tutup Shift) Modal */}
+      <Dialog open={isZReportOpen} onOpenChange={setIsZReportOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Z-Report (Tutup Shift)</DialogTitle>
+            <DialogDescription>
+              Ringkasan transaksi selama shift.
+            </DialogDescription>
+          </DialogHeader>
+          {activeShift && (
+            <div className="grid gap-3 py-4 text-sm">
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-500">Kasir:</span>
+                <span className="font-semibold">{activeShift.kasir}</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-500">Mulai Shift:</span>
+                <span className="font-semibold">{activeShift.startTime}</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-500">Modal Awal:</span>
+                <span className="font-semibold">{formatPrice(activeShift.modalAwal)}</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-500">Total Transaksi:</span>
+                <span className="font-semibold">{activeShift.transactions.length} orders</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-500">Total Penerimaan (Sales):</span>
+                <span className="font-semibold text-emerald-600">{formatPrice(totalShiftSales)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-base pt-2">
+                <span>Estimasi Kas Laci:</span>
+                <span className="text-sky-600">{formatPrice(activeShift.modalAwal + totalShiftSales)}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setIsZReportOpen(false)} className="cursor-pointer">Batal</Button>
+            <Button onClick={handleCloseShift} className="bg-rose-600 hover:bg-rose-700 text-white cursor-pointer">Konfirmasi Tutup Shift</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Feature B: Held Orders Modal */}
+      <Dialog open={isHeldOrdersOpen} onOpenChange={setIsHeldOrdersOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Pesanan Ditahan</DialogTitle>
+            <DialogDescription>
+              Daftar pesanan yang sedang di-hold (maksimal 5).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-4 max-h-[60vh] overflow-y-auto">
+            {heldOrders.length === 0 ? (
+              <p className="text-center text-sm text-slate-500 py-4">Tidak ada pesanan yang ditahan.</p>
+            ) : (
+              heldOrders.map(hold => {
+                const total = hold.cart.reduce((a, b) => a + b.unitPrice * b.quantity, 0);
+                const itemsCount = hold.cart.reduce((a, b) => a + b.quantity, 0);
+                return (
+                  <div key={hold.holdId} className="flex flex-col gap-2 p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-sm">{hold.customerName}</p>
+                        <p className="text-xs text-slate-500">{hold.timestamp} • {itemsCount} items</p>
+                      </div>
+                      <span className="font-bold text-sky-600">{formatPrice(total)}</span>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-2">
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteHold(hold.holdId)} className="text-rose-600 border-rose-200 hover:bg-rose-50 h-8 cursor-pointer">
+                        Hapus
+                      </Button>
+                      <Button size="sm" onClick={() => handleResumeHold(hold.holdId)} className="bg-sky-600 hover:bg-sky-700 text-white h-8 cursor-pointer">
+                        Ambil
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
+            <Button variant="outline" onClick={() => setIsHeldOrdersOpen(false)} className="cursor-pointer">
+              Tutup
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* RECEIPT MODAL */}
       <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
         <DialogContent className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-3xl border border-slate-200/80 bg-white/95 p-0 shadow-2xl backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95">
-          {/* Header Banner - Calm Sky Blue */}
-          <div className="bg-sky-600 p-5 text-white dark:bg-sky-950 border-b border-sky-500/20 flex items-center justify-between">
+          <div className={`p-5 text-white flex items-center justify-between ${completedReceipt?.isOffline ? "bg-amber-600 dark:bg-amber-900" : "bg-sky-600 dark:bg-sky-950"}`}>
             <div className="flex items-center gap-2">
               <Printer className="h-5 w-5 text-white" />
               <h3 className="text-base font-bold text-white">Cashier Thermal Receipt</h3>
@@ -714,14 +1169,17 @@ export default function POSTerminalPage() {
             </button>
           </div>
 
-          {/* Printable Receipt Paper Container */}
           {completedReceipt && (
             <div className="p-6 space-y-4">
+              {completedReceipt.isOffline && (
+                <div className="bg-amber-50 text-amber-800 p-2 text-xs text-center rounded-lg border border-amber-200 flex items-center justify-center gap-1">
+                  <WifiOff className="h-3 w-3" /> Transaksi Offline (Tersimpan Lokal)
+                </div>
+              )}
               <div
                 id="receipt-print-area"
                 className="bg-white p-5 rounded-2xl border border-slate-200 font-mono text-xs text-slate-800 space-y-3 shadow-inner"
               >
-                {/* Store Branding Header */}
                 <div className="text-center pb-3 border-b border-dashed border-slate-300">
                   <h2 className="text-base font-bold text-slate-900 tracking-tight">
                     FLOWERP STORE
@@ -737,7 +1195,6 @@ export default function POSTerminalPage() {
                   </p>
                 </div>
 
-                {/* Info Metadata */}
                 <div className="space-y-1 text-[11px] pb-2 border-b border-dashed border-slate-300">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Customer:</span>
@@ -749,7 +1206,6 @@ export default function POSTerminalPage() {
                   </div>
                 </div>
 
-                {/* Items Table */}
                 <div className="space-y-2 pb-3 border-b border-dashed border-slate-300">
                   {completedReceipt.items.map((item, idx) => (
                     <div key={idx} className="space-y-0.5">
@@ -768,7 +1224,6 @@ export default function POSTerminalPage() {
                   ))}
                 </div>
 
-                {/* Totals Summary */}
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between text-slate-600">
                     <span>Subtotal:</span>
@@ -796,14 +1251,12 @@ export default function POSTerminalPage() {
                   )}
                 </div>
 
-                {/* Footer Message */}
                 <div className="text-center pt-3 border-t border-dashed border-slate-300 text-[10px] text-slate-500">
                   <p className="font-semibold text-slate-700">Terima Kasih Atas Kunjungan Anda!</p>
                   <p>Barang yang sudah dibeli tidak dapat ditukar.</p>
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="flex gap-2">
                 <Button
                   onClick={() => {

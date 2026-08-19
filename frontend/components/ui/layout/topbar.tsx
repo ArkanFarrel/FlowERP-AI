@@ -10,6 +10,9 @@ import {
   Sun,
   AlertTriangle,
   FileText,
+  Building,
+  Check,
+  Plus,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -179,17 +182,148 @@ export default function Topbar({
           )}
         </button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium dark:bg-gray-800 dark:hover:bg-gray-700 outline-none cursor-pointer">
-            Company <ChevronDown className="w-4 h-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem className="cursor-pointer">FlowERP Store (Current)</DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer">TechCorp</DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer">Manage Companies</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <BranchSelector />
       </div>
     </header>
+  );
+}
+
+function BranchSelector() {
+  const [branches, setBranches] = useState<{ id: string; name: string; isCurrent: boolean }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [formData, setFormData] = useState({ name: "", currency: "USD", taxRate: 10 });
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    import("@/app/actions/branches").then((m) => {
+      m.getBranches().then(setBranches);
+    });
+  }, []);
+
+  const currentBranch = branches.find((b) => b.isCurrent) || branches[0];
+
+  const handleSwitch = async (id: string) => {
+    if (currentBranch?.id === id) return;
+    setLoading(true);
+    const { switchBranch } = await import("@/app/actions/branches");
+    await switchBranch(id);
+    window.location.reload();
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const { createBranch, switchBranch } = await import("@/app/actions/branches");
+      const newBranch = await createBranch({
+        name: formData.name,
+        currency: formData.currency,
+        taxRate: Number(formData.taxRate),
+      });
+      await switchBranch(newBranch.id);
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium dark:bg-gray-800 dark:hover:bg-gray-700 outline-none cursor-pointer"
+        >
+          <Building className="w-4 h-4 text-sky-600" />
+          <span className="max-w-[120px] truncate">{currentBranch?.name || "Loading..."}</span>
+          <ChevronDown className="w-4 h-4 text-gray-500" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Switch Branch
+          </div>
+          {branches.map((b) => (
+            <DropdownMenuItem
+              key={b.id}
+              onClick={() => handleSwitch(b.id)}
+              className="cursor-pointer flex items-center justify-between"
+            >
+              <span className="truncate">{b.name}</span>
+              {b.isCurrent && <Check className="w-4 h-4 text-green-600" />}
+            </DropdownMenuItem>
+          ))}
+          <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+          <DropdownMenuItem
+            onClick={() => setModalOpen(true)}
+            className="cursor-pointer text-sky-600 dark:text-sky-400 font-medium"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            + Tambah Cabang / Outlet Baru
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+            <h2 className="text-xl font-bold mb-4">Tambah Cabang Baru</h2>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama Cabang / Outlet</label>
+                <Input
+                  required
+                  placeholder="e.g., FlowERP Cabang Surabaya"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Currency</label>
+                  <select
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:ring-offset-slate-950 dark:placeholder:text-slate-400 dark:focus:ring-slate-300"
+                    value={formData.currency}
+                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                  >
+                    <option value="IDR">IDR</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Tax Rate (%)</label>
+                  <Input
+                    required
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formData.taxRate}
+                    onChange={(e) => setFormData({ ...formData, taxRate: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {submitting ? "Menyimpan..." : "Simpan Cabang"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

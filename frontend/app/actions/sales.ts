@@ -390,3 +390,133 @@ export async function createPOSCheckoutOrder(data: {
     return { success: false, error: "Gagal memproses transaksi kasir POS." };
   }
 }
+
+// ─── Types for Returns & Delivery Orders ──────────────────────────────────────
+
+export interface SalesReturnItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface DeliveryOrderData {
+  doNumber: string;
+  saleId: string;
+  orderNumber: string;
+  issueDate: string;
+  customerName: string;
+  customerAddress: string;
+  items: Array<{ productName: string; sku: string; quantity: number; unit: string }>;
+  status: string;
+}
+
+export async function createSalesReturn(data: {
+  saleId: string;
+  reason: string;
+  returnType: 'REFUND' | 'EXCHANGE' | 'CREDIT_NOTE';
+  items: SalesReturnItem[];
+}): Promise<{ success: boolean; returnId?: string; refundAmount?: number; error?: string }> {
+  try {
+    const company = await ensureDefaultCompany();
+    const returnId = `RTN-${Math.floor(10000 + Math.random() * 90000)}`;
+    const sale = await prisma.sale.findFirst({
+      where: { OR: [{ id: data.saleId }, { orderNumber: data.saleId }] },
+    });
+    if (!sale) return { success: false, error: 'Sales order tidak ditemukan' };
+    let refundAmount = 0;
+    for (const item of data.items) {
+      refundAmount += item.quantity * item.unitPrice;
+      if (item.productId) {
+        await prisma.product.update({
+          where: { id: item.productId },
+          data: { stock: { increment: item.quantity } },
+        });
+        await prisma.stockMovement.create({
+          data: {
+            type: 'STOCK_IN',
+            quantity: item.quantity,
+            reference: returnId,
+            notes: `Retur ${returnId} - ${data.returnType}. Alasan: ${data.reason}. Produk: ${item.productName}`,
+            productId: item.productId,
+            companyId: company.id,
+          },
+        });
+      }
+    }
+    try {
+      await prisma.notification.create({
+        data: {
+          title: `Retur Penjualan: ${returnId}`,
+          message: `Order ${sale.orderNumber} - ${data.returnType}. Total refund: $${refundAmount.toLocaleString()}. Alasan: ${data.reason}`,
+          type: 'info',
+          companyId: company.id,
+        },
+      });
+    } catch { /* ignore */ }
+    revalidatePath('/Sales');
+    revalidatePath('/ProductInventory');
+    revalidatePath('/Dashboard');
+    return { success: true, returnId, refundAmount };
+  } catch (error) {
+    console.error('createSalesReturn error:', error);
+    return { success: false, error: 'Gagal memproses retur penjualan' };
+  }
+}
+
+export async function generateDeliveryOrder(saleId: string): Promise<{ success: boolean; data?: DeliveryOrderData; error?: string }> {
+  try {
+    const sale = await prisma.sale.findFirst({
+      where: { OR: [{ id: saleId }, { orderNumber: saleId }] },
+      include: { customer: true, items: { include: { product: true } } },
+    });
+    if (!sale) return { success: false, error: 'Sales order tidak ditemukan' };
+    return {
+      success: true,
+      data: {
+        doNumber: `DO-${sale.orderNumber}`,
+        saleId: sale.id,
+        orderNumber: sale.orderNumber,
+        issueDate: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }),
+        customerName: sale.customer?.name || sale.customer?.company || 'Walk-in Customer',
+        customerAddress: sale.customer?.address || sale.customer?.city || 'Jakarta, Indonesia',
+        items: sale.items.map(item => ({
+          productName: item.product?.name || 'Product',
+          sku: item.product?.sku || '-',
+          quantity: item.quantity,
+          unit: item.product?.unit || 'pcs',
+        })),
+        status: 'Processing',
+      },
+    };
+  } catch (error) {
+    console.error('generateDeliveryOrder error:', error);
+    return { success: false, error: 'Gagal membuat surat jalan' };
+  }
+}
+
+export async function getSalesReturnHistory(): Promise<{ success: boolean; data: Array<{ id: string; returnId: string; productName: string; quantity: number; reason: string; time: string }> }> {
+  try {
+    const company = await ensureDefaultCompany();
+    const movements = await prisma.stockMovement.findMany({
+      where: { companyId: company.id, type: 'STOCK_IN', reference: { startsWith: 'RTN-' } },
+      include: { product: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return {
+      success: true,
+      data: movements.map(m => ({
+        id: m.id,
+        returnId: m.reference || 'RTN-?',
+        productName: m.product?.name || 'Product',
+        quantity: m.quantity,
+        reason: m.notes || '-',
+        time: new Date(m.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+      })),
+    };
+  } catch (error) {
+    console.error('getSalesReturnHistory error:', error);
+    return { success: false, data: [] };
+  }
+}

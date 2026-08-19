@@ -23,8 +23,9 @@ import { useUser } from '@/hooks/useUser';
 import { exportToCSV } from '@/lib/export';
 import { formatPrice } from '@/lib/currency';
 import InvoiceModal, { type InvoiceData } from '@/components/ui/InvoiceModal';
-import { FileSpreadsheet, Printer } from 'lucide-react';
-
+import { FileSpreadsheet, Printer, Truck, RotateCcw } from 'lucide-react';
+import DeliveryOrderModal from '@/components/ui/DeliveryOrderModal';
+import { createSalesReturn, generateDeliveryOrder, getSalesReturnHistory, type DeliveryOrderData, type SalesReturnItem } from '@/app/actions/sales';
 // ─── Badge styles ───────────────────────────────────────────────────────────────
 const badgeClasses: Record<string, string> = {
   Paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800',
@@ -81,6 +82,19 @@ const SalesPage = () => {
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterSalesperson, setFilterSalesperson] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+
+  // Return & DO state
+  const [isDoModalOpen, setIsDoModalOpen] = useState(false);
+  const [doData, setDoData] = useState<DeliveryOrderData | null>(null);
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [returnTargetOrder, setReturnTargetOrder] = useState('');
+  const [returnReason, setReturnReason] = useState('');
+  const [returnType, setReturnType] = useState<'REFUND' | 'EXCHANGE' | 'CREDIT_NOTE'>('REFUND');
+  const [returnItems, setReturnItems] = useState<Array<{productId: string; productName: string; quantity: number; unitPrice: number}>>([]);
+  const [newReturnItem, setNewReturnItem] = useState({ productId: '', productName: '', quantity: 1, unitPrice: 0 });
+  const [isProcessingReturn, setIsProcessingReturn] = useState(false);
+  const [returnHistory, setReturnHistory] = useState<Array<{id: string; returnId: string; productName: string; quantity: number; reason: string; time: string}>>([]);
+  const [showReturnHistory, setShowReturnHistory] = useState(false);
 
   // ─── Load data ────────────────────────────────────────────────────────────────
   const loadData = async () => {
@@ -247,6 +261,47 @@ const SalesPage = () => {
   };
 
   // ─── Form handlers ────────────────────────────────────────────────────────────
+  const handleOpenDO = async (sale: SalesOrderItem) => {
+    const res = await generateDeliveryOrder(sale.dbId);
+    if (res.success && res.data) { setDoData(res.data); setIsDoModalOpen(true); }
+  };
+
+  const handleOpenReturn = (sale: SalesOrderItem) => {
+    setReturnTargetOrder(sale.dbId);
+    setReturnReason('');
+    setReturnType('REFUND');
+    setReturnItems([]);
+    setNewReturnItem({ productId: '', productName: '', quantity: 1, unitPrice: 0 });
+    setIsReturnModalOpen(true);
+  };
+
+  const handleAddReturnItem = () => {
+    if (!newReturnItem.productName || newReturnItem.quantity < 1) return;
+    setReturnItems(prev => [...prev, { ...newReturnItem }]);
+    setNewReturnItem({ productId: '', productName: '', quantity: 1, unitPrice: 0 });
+  };
+
+  const handleSubmitReturn = async () => {
+    if (!returnTargetOrder || returnItems.length === 0) return;
+    setIsProcessingReturn(true);
+    const res = await createSalesReturn({ saleId: returnTargetOrder, reason: returnReason, returnType, items: returnItems });
+    if (res.success) {
+      setIsReturnModalOpen(false);
+      alert(`Retur berhasil! ID: ${res.returnId}. Refund: $${res.refundAmount?.toLocaleString()}`);
+      const salesRes = await getSales();
+      if (salesRes.success) setSalesList(salesRes.data);
+    } else { alert(res.error || 'Gagal'); }
+    setIsProcessingReturn(false);
+  };
+
+  const toggleReturnHistory = async () => {
+    if (!showReturnHistory) {
+      const res = await getSalesReturnHistory();
+      if (res.success) setReturnHistory(res.data);
+    }
+    setShowReturnHistory(!showReturnHistory);
+  };
+
   const autoGenerateOrder = () => {
     const num = Math.floor(10000 + Math.random() * 90000);
     setFormData(prev => ({ ...prev, order: `SO-${num}` }));
@@ -490,14 +545,32 @@ const SalesPage = () => {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenInvoice(row)}
-                              title="Print Invoice / View PDF"
-                              className="inline-flex h-8 px-2.5 items-center justify-center gap-1 rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300 dark:hover:bg-sky-900 transition-colors text-xs font-medium cursor-pointer"
-                            >
-                              <Printer className="h-3.5 w-3.5" /> Invoice
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDO(row)}
+                                title="Delivery Order"
+                                className="inline-flex h-8 px-2.5 items-center justify-center gap-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors text-xs font-medium cursor-pointer shadow-sm"
+                              >
+                                <Truck className="h-3.5 w-3.5" /> DO
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReturn(row)}
+                                title="Sales Return"
+                                className="inline-flex h-8 px-2.5 items-center justify-center gap-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-900/20 transition-colors text-xs font-medium cursor-pointer shadow-sm"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" /> Return
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenInvoice(row)}
+                                title="Print Invoice / View PDF"
+                                className="inline-flex h-8 px-2.5 items-center justify-center gap-1 rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 dark:bg-sky-950 dark:text-sky-300 dark:hover:bg-sky-900 transition-colors text-xs font-medium cursor-pointer"
+                              >
+                                <Printer className="h-3.5 w-3.5" /> Invoice
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -555,6 +628,55 @@ const SalesPage = () => {
                 </div>
               </section>
             )}
+
+            {/* Return History Section */}
+            <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                  <RotateCcw className="w-5 h-5 text-rose-500" /> Sales Returns
+                </h2>
+                <button
+                  type="button"
+                  onClick={toggleReturnHistory}
+                  className="text-sm font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400"
+                >
+                  {showReturnHistory ? 'Hide History' : 'View History'}
+                </button>
+              </div>
+              
+              {showReturnHistory && (
+                <div className="mt-4 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead className="bg-slate-50 dark:bg-slate-950">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Return ID</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Product</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Qty</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white dark:bg-slate-900 text-sm">
+                      {returnHistory.length > 0 ? (
+                        returnHistory.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="px-4 py-3 font-medium text-rose-600 dark:text-rose-400">{item.returnId}</td>
+                            <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{item.productName}</td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{item.quantity}</td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{item.time}</td>
+                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{item.reason}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-slate-500">No return history found.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
           </div>
         </div>
@@ -752,6 +874,78 @@ const SalesPage = () => {
         onClose={() => setIsInvoiceOpen(false)}
         invoice={selectedInvoice}
       />
+
+      {/* Return Modal */}
+      <Dialog open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
+        <DialogContent className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-3xl border border-slate-200/80 bg-white/95 p-0 shadow-2xl backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95">
+          <div className="bg-rose-600 p-6 text-white dark:bg-rose-900 border-b border-rose-500/20">
+            <h2 className="text-xl font-bold tracking-tight text-white">Sales Return</h2>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">Return Reason</Label>
+              <textarea
+                value={returnReason}
+                onChange={e => setReturnReason(e.target.value)}
+                className="w-full mt-1.5 h-20 rounded-2xl border border-slate-200 dark:border-slate-800 dark:bg-slate-900 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                placeholder="Why is the item being returned?"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">Return Type</Label>
+              <Select value={returnType} onValueChange={(v: any) => setReturnType(v)}>
+                <SelectTrigger className="w-full mt-1.5 h-11 rounded-2xl border-slate-200 dark:border-slate-800 dark:bg-slate-900">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="REFUND">Refund</SelectItem>
+                  <SelectItem value="EXCHANGE">Exchange</SelectItem>
+                  <SelectItem value="CREDIT_NOTE">Credit Note</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-4 mt-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2 block">Add Return Item</Label>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <Input placeholder="Product ID (optional)" value={newReturnItem.productId} onChange={e => setNewReturnItem({...newReturnItem, productId: e.target.value})} className="h-10 rounded-xl" />
+                <Input placeholder="Product Name" value={newReturnItem.productName} onChange={e => setNewReturnItem({...newReturnItem, productName: e.target.value})} className="h-10 rounded-xl" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Input type="number" min="1" placeholder="Qty" value={newReturnItem.quantity} onChange={e => setNewReturnItem({...newReturnItem, quantity: parseInt(e.target.value) || 1})} className="h-10 rounded-xl" />
+                <Input type="number" min="0" step="0.01" placeholder="Unit Price" value={newReturnItem.unitPrice || ''} onChange={e => setNewReturnItem({...newReturnItem, unitPrice: parseFloat(e.target.value) || 0})} className="h-10 rounded-xl" />
+                <Button type="button" onClick={handleAddReturnItem} className="h-10 rounded-xl bg-slate-800 text-white hover:bg-slate-700">Add Item</Button>
+              </div>
+            </div>
+
+            {returnItems.length > 0 && (
+              <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-slate-50 dark:bg-slate-900/50 mt-2">
+                <h4 className="text-xs font-semibold text-slate-500 mb-2">Items to Return:</h4>
+                <ul className="space-y-1">
+                  {returnItems.map((item, idx) => (
+                    <li key={idx} className="flex justify-between text-sm">
+                      <span>{item.quantity}x {item.productName}</span>
+                      <span className="font-medium">${(item.quantity * item.unitPrice).toLocaleString()}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="border-t border-slate-200 dark:border-slate-700 mt-2 pt-2 flex justify-between font-bold text-slate-900 dark:text-white">
+                  <span>Total Refund:</span>
+                  <span>${returnItems.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0).toLocaleString()}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4 border-t border-slate-200 dark:border-slate-800 mt-2">
+              <Button type="button" variant="outline" onClick={() => setIsReturnModalOpen(false)} className="flex-1 rounded-2xl">Cancel</Button>
+              <Button type="button" onClick={handleSubmitReturn} disabled={isProcessingReturn || returnItems.length === 0} className="flex-1 rounded-2xl bg-rose-600 text-white hover:bg-rose-700">
+                {isProcessingReturn ? 'Processing...' : 'Submit Return'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <DeliveryOrderModal open={isDoModalOpen} onClose={() => setIsDoModalOpen(false)} doData={doData} />
     </div>
   );
 };

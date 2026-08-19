@@ -1,0 +1,10 @@
+{
+  "customAccounts": [
+    {
+      "code": "100",
+      "name": "Tes",
+      "type": "EQUITY"
+    }
+  ],
+  "manualJournals": []
+}

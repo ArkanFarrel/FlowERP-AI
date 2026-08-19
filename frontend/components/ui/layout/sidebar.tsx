@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import {
   BarChart3,
+  ClipboardCheck,
   FileText,
   Package,
   Settings,
@@ -12,6 +13,9 @@ import {
   Zap,
   Store,
   Wallet,
+  Layers,
+  Box,
+  Landmark,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -58,6 +62,9 @@ const rawSidebarItems = [
   // Inventory
   { icon: Package, label: "Products", path: "/Products", permission: "view:products" },
   { icon: ShoppingCart, label: "Inventory", path: "/ProductInventory", permission: "view:inventory" },
+  { icon: ClipboardCheck, label: "Stock Opname", path: "/StockOpname", permission: "view:inventory" },
+  { icon: Layers, label: "Batch & Kadaluarsa", path: "/Batches", permission: "view:inventory" },
+  { icon: Box, label: "Product Bundles", path: "/Bundles", permission: "view:inventory" },
 
   // Purchasing
   { icon: Package, label: "Suppliers", path: "/Suppliers", permission: "view:suppliers" },
@@ -65,6 +72,7 @@ const rawSidebarItems = [
 
   // Finance & Reports
   { icon: Wallet, label: "Finance", path: "/Finance", permission: "view:reports" },
+  { icon: Landmark, label: "Accounting & COA", path: "/Accounting", permission: "view:reports" },
   { icon: BarChart3, label: "Reports", path: "/ReportsPage", permission: "view:reports" },
 
   // Intelligence

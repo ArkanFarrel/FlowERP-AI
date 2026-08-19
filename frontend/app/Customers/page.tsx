@@ -28,6 +28,11 @@ import {
   UserRound,
   Wallet,
   X,
+  Trophy,
+  Bell,
+  AlertOctagon,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -91,7 +96,7 @@ function StatusBadge({ status }: { status: CustomerStatus }) {
 
 
 import { useEffect } from 'react';
-import { getCustomers, createCustomer, deleteCustomer, updateCustomer } from '@/app/actions/customers';
+import { getCustomers, createCustomer, deleteCustomer, updateCustomer, redeemLoyaltyPoints, getLoyaltyLeaderboard, getDueDateAlerts, checkOverdueInvoicesAndNotify, type DueDateAlert } from '@/app/actions/customers';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 
@@ -127,6 +132,14 @@ export default function CustomersPage() {
     creditLimit: 10000,
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [loyaltyLeaderboard, setLoyaltyLeaderboard] = useState<Array<{ id: string; name: string; company: string; loyaltyPoints: number; segment: string; status: string }>>([]);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [dueDateAlerts, setDueDateAlerts] = useState<DueDateAlert[]>([]);
+  const [showOverdueDetails, setShowOverdueDetails] = useState(false);
+  const [isNotifying, setIsNotifying] = useState(false);
+  const [redeemPoints, setRedeemPoints] = useState(200);
+  const [redeemResult, setRedeemResult] = useState<{voucherCode: string; discountValue: number} | null>(null);
+  const [isRedeeming, setIsRedeeming] = useState(false);
   const router = useRouter();
 
 interface BackendCustomerItem {
@@ -218,6 +231,11 @@ interface BackendCustomerItem {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchCustomers();
   }, [fetchCustomers]);
+
+  useEffect(() => {
+    getLoyaltyLeaderboard().then(res => { if (res.success) setLoyaltyLeaderboard(res.data); });
+    getDueDateAlerts().then(res => { if (res.success) setDueDateAlerts(res.data); });
+  }, []);
 
   const handleAddCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -470,6 +488,63 @@ interface BackendCustomerItem {
         {/* Customers Content */}
         <div className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">
           <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+            {/* Overdue Invoice Alert Banner */}
+            {dueDateAlerts.filter(a => a.daysOverdue >= 0).length > 0 && (
+              <div className="mx-6 mb-4">
+                <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-100 dark:bg-rose-900/60">
+                        <AlertOctagon className="h-4 w-4 text-rose-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-rose-700 dark:text-rose-400">
+                          {dueDateAlerts.filter(a => a.daysOverdue >= 0).length} invoice melampaui jatuh tempo!
+                        </p>
+                        <p className="text-xs text-rose-600/70">Segera tindak lanjuti untuk menjaga arus kas.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={async () => {
+                          setIsNotifying(true);
+                          const res = await checkOverdueInvoicesAndNotify();
+                          alert(res.success ? `${res.notifiedCount} notifikasi terkirim.` : 'Gagal mengirim notifikasi');
+                          setIsNotifying(false);
+                        }}
+                        disabled={isNotifying}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white text-xs font-semibold rounded-xl hover:bg-rose-700 transition disabled:opacity-50"
+                      >
+                        <Bell className="h-3.5 w-3.5" />
+                        {isNotifying ? 'Mengirim...' : 'Ingatkan Semua'}
+                      </button>
+                      <button
+                        onClick={() => setShowOverdueDetails(v => !v)}
+                        className="flex items-center gap-1 px-3 py-1.5 border border-rose-200 text-rose-600 text-xs font-semibold rounded-xl hover:bg-rose-50 transition"
+                      >
+                        {showOverdueDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        Detail
+                      </button>
+                    </div>
+                  </div>
+                  {showOverdueDetails && (
+                    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                      {dueDateAlerts.map(alert => (
+                        <div key={alert.orderId} className={`flex items-center justify-between rounded-xl px-4 py-2.5 text-xs ${ alert.daysOverdue > 0 ? 'bg-rose-100 dark:bg-rose-900/40' : 'bg-amber-50 dark:bg-amber-900/20' }`}>
+                          <div><span className="font-bold text-slate-900 dark:text-white">#{alert.orderNumber}</span><span className="ml-2 text-slate-600 dark:text-slate-400">{alert.customerName}</span></div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-600">${alert.total.toLocaleString()}</span>
+                            <span className={`font-bold ${ alert.daysOverdue > 0 ? 'text-rose-600' : 'text-amber-600' }`}>
+                              {alert.daysOverdue > 0 ? `${alert.daysOverdue}h lewat` : `${Math.abs(alert.daysOverdue)}h lagi`}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-end sm:justify-between lg:px-8">
                 <div className="space-y-2">
@@ -904,6 +979,47 @@ interface BackendCustomerItem {
                           <div className="flex items-center justify-between"><span>Outstanding Balance</span><span className="font-medium text-slate-900 dark:text-white">${Number(pagedCustomers[0].outstandingBalance || 0).toLocaleString()}</span></div>
                           <div className="flex items-center justify-between"><span>Loyalty Points</span><span className="font-medium text-slate-900 dark:text-white">{Number(pagedCustomers[0].loyaltyPoints || 0).toLocaleString()}</span></div>
                         </div>
+
+                        {/* Loyalty Points Redemption Panel */}
+                        <div className="mt-3 rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Star className="h-4 w-4 text-amber-500" />
+                              <span className="text-sm font-bold text-amber-700 dark:text-amber-400">Poin Loyalitas</span>
+                            </div>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${ (pagedCustomers[0]?.loyaltyPoints || 0) >= 5000 ? 'bg-amber-400 text-amber-900' : (pagedCustomers[0]?.loyaltyPoints || 0) >= 1000 ? 'bg-slate-300 text-slate-800' : 'bg-orange-200 text-orange-800' }`}>
+                              { (pagedCustomers[0]?.loyaltyPoints || 0) >= 5000 ? 'Gold' : (pagedCustomers[0]?.loyaltyPoints || 0) >= 1000 ? 'Silver' : 'Bronze' }
+                            </span>
+                          </div>
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="text-2xl font-black text-amber-600">{(pagedCustomers[0]?.loyaltyPoints || 0).toLocaleString()}</span>
+                            <span className="text-xs text-amber-600/70">poin = Rp {((pagedCustomers[0]?.loyaltyPoints || 0) * 500).toLocaleString()}</span>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <input type="number" min={200} step={100} max={pagedCustomers[0]?.loyaltyPoints || 0}
+                              value={redeemPoints} onChange={e => { setRedeemPoints(Number(e.target.value)); setRedeemResult(null); }}
+                              className="flex-1 rounded-xl border border-amber-200 bg-white dark:bg-slate-800 dark:border-amber-800 px-3 py-1.5 text-sm focus:outline-none"
+                            />
+                            <button
+                              disabled={isRedeeming || redeemPoints < 200 || redeemPoints > (pagedCustomers[0]?.loyaltyPoints || 0)}
+                              onClick={async () => {
+                                if (!pagedCustomers[0]) return;
+                                setIsRedeeming(true); setRedeemResult(null);
+                                const res = await redeemLoyaltyPoints(pagedCustomers[0].dbId || pagedCustomers[0].id, redeemPoints);
+                                if (res.success) { setRedeemResult({ voucherCode: res.voucherCode!, discountValue: res.discountValue! }); }
+                                else { alert(res.error); }
+                                setIsRedeeming(false);
+                              }}
+                              className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-xl hover:bg-amber-600 disabled:opacity-50 transition"
+                            >{isRedeeming ? '...' : 'Tukar'}</button>
+                          </div>
+                          {redeemResult && (
+                            <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800 p-3 text-xs">
+                              <p className="font-bold text-emerald-700">✅ Voucher: <span className="font-mono text-base">{redeemResult.voucherCode}</span></p>
+                              <p className="text-emerald-600">Nilai Diskon: Rp {redeemResult.discountValue.toLocaleString()}</p>
+                            </div>
+                          )}
+                        </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60 p-4">
                           <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
                             <span>Customer Health Score</span>
@@ -946,6 +1062,53 @@ interface BackendCustomerItem {
                 </section>
               </aside>
             </div>
+
+            {/* Loyalty Leaderboard */}
+            {loyaltyLeaderboard.length > 0 && (
+              <div className="px-6 pb-6">
+                <div className="rounded-3xl border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-900 overflow-hidden">
+                  <div className="flex items-center justify-between p-5 border-b border-amber-100 dark:border-amber-900">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+                        <Trophy className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Top 10 Pelanggan Loyal</h3>
+                        <p className="text-xs text-slate-500">Berdasarkan saldo poin tertinggi</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setShowLeaderboard(v => !v)} className="text-xs text-amber-600 font-semibold hover:underline cursor-pointer">
+                      {showLeaderboard ? 'Sembunyikan' : 'Tampilkan'}
+                    </button>
+                  </div>
+                  {showLeaderboard && (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {loyaltyLeaderboard.map((c, idx) => {
+                        const tier = c.loyaltyPoints >= 5000 ? 'Gold' : c.loyaltyPoints >= 1000 ? 'Silver' : 'Bronze';
+                        const tierColor = tier === 'Gold' ? 'text-amber-500' : tier === 'Silver' ? 'text-slate-400' : 'text-orange-400';
+                        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                        return (
+                          <div key={c.id} className="flex items-center gap-4 px-5 py-3">
+                            <span className="text-lg w-8 text-center">{medal}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{c.name}</p>
+                              <p className="text-xs text-slate-500 truncate">{c.company}</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="flex items-center gap-1">
+                                <Star className={`h-3.5 w-3.5 ${tierColor}`} />
+                                <span className="text-sm font-black text-slate-900 dark:text-white">{c.loyaltyPoints.toLocaleString()}</span>
+                              </div>
+                              <span className={`text-xs font-semibold ${tierColor}`}>{tier}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </main>
         </div>
       </div>

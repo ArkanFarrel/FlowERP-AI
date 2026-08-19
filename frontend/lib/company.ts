@@ -6,6 +6,21 @@ import { cookies } from 'next/headers';
 export async function getCurrentCompany() {
   try {
     const cookieStore = await cookies();
+    
+    // Check branch override cookie first
+    const branchId = cookieStore.get('flow_active_branch_id')?.value;
+    if (branchId) {
+      const branch = await prisma.company.findUnique({ where: { id: branchId } });
+      if (branch) {
+        return {
+          id: branch.id,
+          name: branch.name,
+          currency: branch.currency || 'USD',
+          taxRate: branch.taxRate || 10,
+        };
+      }
+    }
+
     const userId = cookieStore.get('auth_token')?.value;
 
     if (userId) {

@@ -171,3 +171,185 @@ export async function updateCustomer(id: string, input: Record<string, unknown>)
     return { success: false, error: "Failed to update customer" };
   }
 }
+
+// ─── Loyalty Points ───────────────────────────────────────────────────────────
+
+/**
+ * Redeem loyalty points. 1 point = Rp 500 discount. Minimum: 200 points.
+ */
+export async function redeemLoyaltyPoints(
+  customerId: string,
+  pointsToRedeem: number
+): Promise<{ success: boolean; discountValue?: number; remainingPoints?: number; voucherCode?: string; error?: string }> {
+  if (pointsToRedeem < 200) {
+    return { success: false, error: 'Minimum penukaran poin adalah 200 poin.' };
+  }
+  try {
+    const customer = await prisma.customer.findFirst({
+      where: { OR: [{ id: customerId }, { code: customerId }] },
+    });
+    if (!customer) return { success: false, error: 'Pelanggan tidak ditemukan' };
+    if (customer.loyaltyPoints < pointsToRedeem) {
+      return { success: false, error: `Saldo poin tidak cukup. Saldo: ${customer.loyaltyPoints} poin.` };
+    }
+    const remainingPoints = customer.loyaltyPoints - pointsToRedeem;
+    const discountValue = pointsToRedeem * 500;
+    const voucherCode = `VCH-${Math.floor(10000 + Math.random() * 90000)}`;
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { loyaltyPoints: remainingPoints },
+    });
+    revalidatePath('/Customers');
+    return { success: true, discountValue, remainingPoints, voucherCode };
+  } catch (error) {
+    console.error('redeemLoyaltyPoints error:', error);
+    return { success: false, error: 'Gagal menukarkan poin' };
+  }
+}
+
+/**
+ * Add loyalty points after purchase. 1 point per Rp 10,000 spent.
+ */
+export async function addLoyaltyPoints(
+  customerId: string,
+  purchaseAmount: number
+): Promise<{ success: boolean; pointsEarned?: number; newTotal?: number; error?: string }> {
+  try {
+    const customer = await prisma.customer.findFirst({
+      where: { OR: [{ id: customerId }, { code: customerId }] },
+    });
+    if (!customer) return { success: false, error: 'Pelanggan tidak ditemukan' };
+    const pointsEarned = Math.floor(purchaseAmount / 10000);
+    if (pointsEarned === 0) return { success: true, pointsEarned: 0, newTotal: customer.loyaltyPoints };
+    const newTotal = customer.loyaltyPoints + pointsEarned;
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { loyaltyPoints: newTotal },
+    });
+    revalidatePath('/Customers');
+    return { success: true, pointsEarned, newTotal };
+  } catch (error) {
+    console.error('addLoyaltyPoints error:', error);
+    return { success: false, error: 'Gagal menambahkan poin' };
+  }
+}
+
+/**
+ * Get top 10 customers by loyalty points.
+ */
+export async function getLoyaltyLeaderboard(): Promise<{
+  success: boolean;
+  data: Array<{ id: string; name: string; company: string; loyaltyPoints: number; segment: string; status: string }>;
+}> {
+  try {
+    const company = await ensureDefaultCompany();
+    const customers = await prisma.customer.findMany({
+      where: { companyId: company.id, loyaltyPoints: { gt: 0 } },
+      orderBy: { loyaltyPoints: 'desc' },
+      take: 10,
+      select: { id: true, name: true, company: true, loyaltyPoints: true, segment: true, status: true },
+    });
+    return {
+      success: true,
+      data: customers.map(c => ({
+        id: c.id,
+        name: c.name,
+        company: c.company || c.name,
+        loyaltyPoints: c.loyaltyPoints,
+        segment: c.segment,
+        status: c.status,
+      })),
+    };
+  } catch (error) {
+    console.error('getLoyaltyLeaderboard error:', error);
+    return { success: false, data: [] };
+  }
+}
+
+// ─── Due Date Alerts ─────────────────────────────────────────────────────────
+
+export interface DueDateAlert {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  total: number;
+  createdAt: string;
+  dueDate: string;
+  daysOverdue: number;
+}
+
+export async function getDueDateAlerts(): Promise<{ success: boolean; data: DueDateAlert[] }> {
+  try {
+    const company = await ensureDefaultCompany();
+    const now = new Date();
+    const sales = await prisma.sale.findMany({
+      where: {
+        companyId: company.id,
+        paymentStatus: { in: ['Pending', 'Overdue'] },
+      },
+      include: { customer: true },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+    const alerts: DueDateAlert[] = sales.map(s => {
+      const dueDate = new Date(s.createdAt);
+      dueDate.setDate(dueDate.getDate() + 30);
+      const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      return {
+        orderId: s.id,
+        orderNumber: s.orderNumber,
+        customerName: s.customer?.name || s.customer?.company || 'Pelanggan',
+        total: s.total,
+        createdAt: new Date(s.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+        dueDate: dueDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+        daysOverdue,
+      };
+    });
+    return { success: true, data: alerts.sort((a, b) => b.daysOverdue - a.daysOverdue) };
+  } catch (error) {
+    console.error('getDueDateAlerts error:', error);
+    return { success: false, data: [] };
+  }
+}
+
+export async function checkOverdueInvoicesAndNotify(): Promise<{ success: boolean; overdueCount?: number; notifiedCount?: number }> {
+  try {
+    const company = await ensureDefaultCompany();
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const overdueSales = await prisma.sale.findMany({
+      where: {
+        companyId: company.id,
+        OR: [
+          { paymentStatus: 'Overdue' },
+          { paymentStatus: 'Pending', createdAt: { lt: cutoff } },
+        ],
+      },
+      include: { customer: true },
+      take: 50,
+    });
+    let notifiedCount = 0;
+    for (const sale of overdueSales) {
+      try {
+        const existing = await prisma.notification.findFirst({
+          where: { companyId: company.id, title: { contains: sale.orderNumber } },
+        });
+        if (!existing) {
+          await prisma.notification.create({
+            data: {
+              title: `Invoice Overdue: #${sale.orderNumber}`,
+              message: `Tagihan ${sale.customer?.name || 'N/A'} sebesar $${sale.total.toLocaleString()} jatuh tempo. Tanggal: ${new Date(sale.createdAt).toLocaleDateString('id-ID')}.`,
+              type: 'warning',
+              companyId: company.id,
+            },
+          });
+          notifiedCount++;
+        }
+      } catch { /* ignore per-item */ }
+    }
+    return { success: true, overdueCount: overdueSales.length, notifiedCount };
+  } catch (error) {
+    console.error('checkOverdueInvoicesAndNotify error:', error);
+    return { success: false };
+  }
+}
+
