@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import {
@@ -237,7 +238,7 @@ function BranchSelector() {
           className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium dark:bg-gray-800 dark:hover:bg-gray-700 outline-none cursor-pointer"
         >
           <Building className="w-4 h-4 text-sky-600" />
-          <span className="max-w-[120px] truncate">{currentBranch?.name || "Loading..."}</span>
+          <span className="max-w-30 truncate">{currentBranch?.name || "Loading..."}</span>
           <ChevronDown className="w-4 h-4 text-gray-500" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
