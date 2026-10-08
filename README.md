@@ -10,15 +10,15 @@ FlowERP AI dibangun dengan arsitektur decoupled/modular yang fleksibel:
 
 ```mermaid
 graph TD
-    Client[Web Browser / Mobile Client] -->|UI / Server Actions| Frontend[Frontend: Next.js 16 App Router + TailwindCSS + Zustand]
-    Client -->|REST API Requests| Backend[Backend: Express.js 5 + TypeScript + Zod]
+    Client["Web Browser / Mobile Client"] -->|UI / Server Actions| Frontend["Frontend: Next.js 16 App Router + TailwindCSS + Zustand"]
+    Client -->|REST API Requests| Backend["Backend: Express.js 5 + TypeScript + Zod"]
     
-    Frontend -->|Prisma ORM| DB[(PostgreSQL Database)]
-    Frontend -->|AI Engine| Gemini[Google Gemini AI API]
+    Frontend -->|Prisma ORM| DB[("PostgreSQL Database")]
+    Frontend -->|AI Engine| Gemini["Google Gemini AI API"]
     
-    Backend -->|Prisma Client| DevDB[(PostgreSQL / SQLite Database)]
-    Backend -->|Swagger Docs| Swagger[/api-docs UI]
-    Backend -->|JWT Auth & Security| Security[Helmet + Rate Limiter + Winston Logger]
+    Backend -->|Prisma Client| DevDB[("PostgreSQL / SQLite Database")]
+    Backend -->|Swagger Docs| Swagger["/api-docs UI"]
+    Backend -->|JWT Auth & Security| Security["Helmet + Rate Limiter + Winston Logger"]
 ```
 
 ---
