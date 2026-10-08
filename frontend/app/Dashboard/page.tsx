@@ -881,57 +881,6 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-
-      {/* ========================================================================= */}
-      {/* FEATURE B2: QUICK ACTION SPEED-DIAL FLOATING BUTTON (FAB)                  */}
-      {/* ========================================================================= */}
-      {/* <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-        {isSpeedDialOpen && (
-          <div className="flex flex-col gap-2.5 mb-3 items-end animate-in fade-in slide-in-from-bottom-4 duration-200">
-            <button
-              onClick={() => router.push('/POS')}
-              className="flex items-center gap-2.5 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer font-semibold text-xs group"
-            >
-              <span>Buka Kasir POS Terminal</span>
-              <div className="p-1 bg-white/20 rounded-lg"><ShoppingCart className="w-4 h-4" /></div>
-            </button>
-
-            <button
-              onClick={() => router.push('/AI-Insights')}
-              className="flex items-center gap-2.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer font-semibold text-xs group"
-            >
-              <span>Scan Struk AI OCR</span>
-              <div className="p-1 bg-white/20 rounded-lg"><Camera className="w-4 h-4" /></div>
-            </button>
-
-            <button
-              onClick={() => router.push('/Products')}
-              className="flex items-center gap-2.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer font-semibold text-xs group"
-            >
-              <span>Tambah Produk Baru</span>
-              <div className="p-1 bg-white/20 rounded-lg"><Package className="w-4 h-4" /></div>
-            </button>
-
-            <button
-              onClick={() => router.push('/Sales')}
-              className="flex items-center gap-2.5 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer font-semibold text-xs group"
-            >
-              <span>Buat Sales Order Baru</span>
-              <div className="p-1 bg-white/20 rounded-lg"><FileText className="w-4 h-4" /></div>
-            </button>
-          </div>
-        )}
-
-        <button
-          onClick={() => setIsSpeedDialOpen(!isSpeedDialOpen)}
-          className={`h-14 w-14 rounded-2xl shadow-xl flex items-center justify-center text-white transition-all transform hover:scale-105 active:scale-95 cursor-pointer ${
-            isSpeedDialOpen ? 'bg-rose-600 rotate-45' : 'bg-linear-to-tr from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 shadow-sky-500/25'
-          }`}
-          title="Aksi Cepat (Speed Dial)"
-        >
-          <Plus className="w-7 h-7 transition-transform" />
-        </button>
-      </div> */}
     </div>
   );
 };
