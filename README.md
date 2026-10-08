@@ -1,10 +1,10 @@
-# 🚀 FlowERP AI — Enterprise Intelligence ERP Suite
+# FlowERP AI — Enterprise Intelligence ERP Suite
 
 > **FlowERP AI** adalah sistem Enterprise Resource Planning (ERP) modern terintegrasi berstandar industri dengan arsitektur **Full-Stack (Next.js + Express.js REST API + PostgreSQL / SQLite Prisma ORM)** yang ditenagai oleh **Google Gemini AI**. Dirancang untuk mengotomatisasi operasional bisnis mulai dari inventaris, multi-gudang, kasir POS, penjualan, CRM pelanggan, pengadaan supplier, manajemen beban/keuangan, hingga analitik prediktif & asisten bisnis AI secara real-time.
 
 ---
 
-## 🏛️ Arsitektur Sistem (System Architecture)
+## Arsitektur Sistem (System Architecture)
 
 FlowERP AI dibangun dengan arsitektur decoupled/modular yang fleksibel:
 
@@ -23,62 +23,62 @@ graph TD
 
 ---
 
-## 🌟 Modul & Fitur Utama (Core Modules)
+## Modul & Fitur Utama (Core Modules)
 
-### 📊 1. Executive Dashboard
+### 1. Executive Dashboard
 - **KPI Metrics Real-time**: Total Revenue/Omzet, Volume Pesanan, Jumlah Produk Aktif, dan Pelanggan Terdaftar.
 - **Visualisasi Interaktif**: Grafik tren pendapatan bulanan dan mingguan dinamis (*Recharts*).
 - **Multi-Currency Switcher**: Konversi mata uang langsung (*IDR, USD, EUR, SGD*).
 - **Stok Kritis & Transaksi Terkini**: Widget peringatan stok menipis dan feed penjualan terbaru.
 - **Dark / Light Mode**: Antarmuka adaptif tema gelap dan terang.
 
-### 📦 2. Product Catalog & Advanced Inventory
+### 2. Product Catalog & Advanced Inventory
 - **Katalog & SKU Otomatis**: Manajemen produk dengan SKU otomatis, barcode, kategori, unit (*pcs, box, kg*), harga modal & jual.
 - **Stock Movement Engine**: Riwayat mutasi stok lengkap (*STOCK_IN, STOCK_OUT, ADJUSTMENT, TRANSFER*).
 - **Multi-Warehouse Support**: Manajemen gudang (*Central Store, Outlet, dll.*) dan lokasi rak (*rack location*).
 - **Impor & Ekspor Data**: Ekspor katalog ke CSV/Excel dan impor data massal via CSV.
 - **Audit Log**: Jejak audit histori perubahan stok dengan pencatatan user dan alasan.
 
-### 🛒 3. Point of Sale (POS) & Kasir Cepat
+### 3. Point of Sale (POS) & Kasir Cepat
 - **Quick POS Interface**: Antarmuka kasir cepat berbasis barcode scanner / klik katalog instan.
 - **Order Cart & Discounting**: Perhitungan subtotal, pajak, diskon per item/faktur otomatis.
 - **Multi-Payment Methods**: Dukungan pembayaran Tunai, Transfer Bank, QRIS, dan Kartu.
 - **Cetak Struk & Nota**: Cetak struk kasir termal langsung dari browser.
 
-### 💰 4. Sales Orders & Invoicing
+### 4. Sales Orders & Invoicing
 - **Sales Order (SO) Lifecycle**: Dari pesanan (*Quotation, Confirmed, Processing, Completed, Cancelled*).
 - **Status Pembayaran & Pengiriman**: Pelacakan status bayar (*Paid, Pending, Overdue*) dan logistik (*Processing, Shipping, Delivered*).
 - **Faktur Penjualan (Invoicing)**: Generate faktur resmi dengan penomoran unik otomatis dan cetak PDF.
 - **Ekspor Excel**: Download rekapitulasi data penjualan ke format `.xlsx`.
 
-### 👥 5. Customer Relationship Management (CRM)
+### 5. Customer Relationship Management (CRM)
 - **Profil Pelanggan Komprehensif**: Kontak, alamat, kota, sales representative, dan tipe pelanggan (*Retail, Wholesale*).
 - **Financial & Credit Control**: Monitoring *Lifetime Value (LTV)*, limit kredit (*Credit Limit*), dan sisa hutang (*Outstanding Balance*).
 - **Customer Health & Segmentation**: Penilaian skor kesehatan (*Health Score*) dan segmentasi (*Standard, Regular, VIP*).
 
-### 🏭 6. Supplier Procurement & Purchase Orders (PO)
+### 6. Supplier Procurement & Purchase Orders (PO)
 - **Database Vendor / Supplier**: Pengelolaan mitra pemasok dengan skor performa pengiriman dan kontak PIC.
 - **Purchase Order (PO) Management**: Pembuatan pesanan pembelian barang ke supplier dengan nomor PO otomatis.
 - **Status Penerimaan & Biaya**: Pelacakan barang diterima (*Ordered, Processing, Shipping, Delivered*) dan perhitungan HPP (*Cost Price*).
 
-### 💵 7. Finance & Expense Management
+### 7. Finance & Expense Management
 - **Pencatatan Beban (Expenses)**: Monitoring biaya operasional, gaji karyawan, sewa, utilitas, dan logistik.
 - **Kategori Pengeluaran**: Pengelompokan biaya untuk analisis pos anggaran perusahaan.
 - **Profit & Loss Overview**: Komparasi pendapatan (*Revenue*) vs modal (*COGS*) vs biaya operasional (*Expenses*).
 
-### 🤖 8. FlowERP AI Insights (Powered by Google Gemini)
+### 8. FlowERP AI Insights (Powered by Google Gemini)
 - **AI Business Assistant**: Asisten interaktif berbasis Gemini AI untuk tanya-jawab data omzet, profitabilitas, dan saran bisnis.
 - **Replenishment Advisor**: Algoritma cerdas yang menghitung *Sales Velocity Rate* 30 hari untuk memprediksi sisa hari stok sebelum habis (*Burn Rate*) dan rekomendasi jumlah restock otomatis.
 - **Dead Stock & Critical Alert**: Deteksi otomatis barang yang tidak bergerak (*Dead Stock*) untuk rekomendasi promo/cuci gudang.
 - **Business Health Breakdown**: Skor kesehatan otomatis untuk 5 pilar (Sales, Inventory, Purchasing, Customers, Finance).
 
-### 👥 9. Team & User Access Control (RBAC)
+### 9. Team & User Access Control (RBAC)
 - **Multi-Role User**: Pengaturan peran pengguna (*OWNER, ADMIN/MANAGER, WAREHOUSE, SALES, FINANCE, STAFF*).
 - **Autentikasi & Sesi**: Sistem login terproteksi dengan password hashing (*bcrypt*) dan cookie/token session.
 
 ---
 
-## 🛠️ Tech Stack & Ekosistem
+## Tech Stack & Ekosistem
 
 | Layer | Teknologi & Library |
 | :--- | :--- |
@@ -94,7 +94,7 @@ graph TD
 
 ---
 
-## 📁 Struktur Direktori Proyek
+## Struktur Direktori Proyek
 
 ```text
 FlowERP-AI/
@@ -148,7 +148,7 @@ FlowERP-AI/
 
 ---
 
-## ⚡ Panduan Instalasi & Menjalankan Aplikasi
+## Panduan Instalasi & Menjalankan Aplikasi
 
 ### 1. Prasyarat Sistem
 - **Node.js**: `v18.0.0` atau yang lebih baru
@@ -233,7 +233,7 @@ npm run dev
 
 ---
 
-## 📡 Daftar Endpoint REST API Backend Utama
+## Daftar Endpoint REST API Backend Utama
 
 | Modul | Method | Endpoint | Deskripsi |
 | :--- | :--- | :--- | :--- |
@@ -252,7 +252,7 @@ npm run dev
 
 ---
 
-## ☁️ Panduan Deployment ke Production
+## Panduan Deployment ke Production
 
 ### Frontend ke Vercel:
 1. Push repository ke **GitHub / GitLab**.
@@ -267,7 +267,7 @@ npm run dev
 
 ---
 
-## 📜 Lisensi (License)
+## Lisensi (License)
 
 Sistem ini dilindungi di bawah **Single-Company Enterprise License**.  
 Diberikan hak penggunaan penuh untuk 1 organisasi / perusahaan. Dilarang mendistribusikan ulang atau memperjualbelikan source code tanpa izin resmi.
