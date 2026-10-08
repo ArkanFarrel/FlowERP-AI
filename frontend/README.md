@@ -1,18 +1,18 @@
-# 🚀 FlowERP AI — Enterprise Intelligence ERP Suite
+# FlowERP AI — Enterprise Intelligence ERP Suite
 
 > **FlowERP AI** adalah sistem Manajemen Enterprise Resource Planning (ERP) generasi terbaru berstandar industri yang terintegrasi penuh dengan kecerdasan buatan (**Google Gemini AI**). Dirancang khusus untuk mempermudah operasional bisnis, pencatatan stok, manajemen transaksi penjualan, CRM pelanggan, pengadaan supplier, hingga analisis bisnis prediktif secara real-time.
 
 ---
 
-## 🌟 Modul & Fitur Utama
+## Modul & Fitur Utama
 
-### 📊 1. Executive Dashboard
+### 1. Executive Dashboard
 - **Metrik Utama (KPI)**: Total Omzet Penjualan, Item Produk, Ketersediaan Stok, dan Pelanggan Aktif.
 - **Grafik Tren Sales**: Visualisasi tren penjualan bulanan dan harian secara dinamis.
 - **Multi-Currency Switcher**: Konversi mata uang langsung secara real-time (**IDR, USD, EUR, SGD**).
 - **Dark/Light Mode**: Dukungan tampilan mode gelap dan terang yang nyaman di mata.
 
-### 📦 2. Product Catalog & Inventory Management
+### 2. Product Catalog & Inventory Management
 - **Manajemen Katalog**: Pendaftaran produk baru dengan SKU otomatis, kategori, harga beli/jual, dan gudang.
 - **Stock Adjustment & Movement**: Pencatatan barang Masuk (*IN*), Keluar (*OUT*), dan Penyesuaian Fisik (*SET*).
 - **Target Product Selector**: Selector produk interaktif yang menampilkan stok sisa secara akurat.
@@ -20,28 +20,28 @@
 - **Impor & Ekspor Data**: Fitur ekspor laporan katalog ke CSV dan impor massal dari file CSV.
 - **Audit Log History**: Riwayat transaksi pergudangan lengkap dengan alasan dan user pelaksana.
 
-### 💰 3. Sales Management & Invoicing
+### 3. Sales Management & Invoicing
 - **Sales Order (SO)**: Pembuatan pesanan penjualan dengan nomor SO otomatis.
 - **Status Pembayaran**: Lacak status transaksi (*Paid, Pending, Overdue*).
 - **Cetak Invois PDF / Browser**: Cetak struk dan faktur penjualan resmi untuk pelanggan.
 - **Ekspor Excel**: Ekspor rekapitulasi data penjualan langsung ke format Excel (.xlsx).
 
-### 👥 4. Customer CRM & Relationship Management
+### 4. Customer CRM & Relationship Management
 - **CRM Pelanggan**: Pencatatan profil pelanggan, email, telepon, kota, dan grup bisnis.
 - **Financial Tracking**: Pantau *Lifetime Value*, *Credit Limit*, dan *Outstanding Balance* tiap pelanggan.
 
-### 🏭 5. Supplier Procurement & Purchase Orders (PO)
+### 5. Supplier Procurement & Purchase Orders (PO)
 - **Database Supplier**: Pengelolaan vendor/pemasok dan skor performa pengiriman.
 - **Purchase Order (PO)**: Pencatatan pesanan pembelian barang ke supplier.
 
-### 🤖 6. FlowERP AI Insights (Powered by Google Gemini AI)
+### 6. FlowERP AI Insights (Powered by Google Gemini AI)
 - **AI Business Assistant**: Asisten AI interaktif untuk menjawab pertanyaan seputar kinerja bisnis dan omzet.
 - **Prediksi Stok Kritis**: Analisis prediktif stok barang yang diperkirakan akan habis dalam 7 hari ke depan.
 - **Prakiraan Penjualan (*Sales Forecast*)**: Rekomendasi strategi bisnis berbasis data transaksi riil.
 
 ---
 
-## 🛠️ Teknologi & Stack Utama
+## Teknologi & Stack Utama
 
 - **Framework**: [Next.js 15 (App Router)](https://nextjs.org)
 - **Language**: [TypeScript](https://www.typescriptlang.org/)
@@ -53,7 +53,7 @@
 
 ---
 
-## 💻 Panduan Instalasi & Pengembangan Lokal
+## Panduan Instalasi & Pengembangan Lokal
 
 ### 1. Prasyarat System
 Pastikan komputer Anda telah terinstal:
@@ -100,7 +100,7 @@ Buka [http://localhost:3000](http://localhost:3000) pada browser Anda.
 
 ---
 
-## ☁️ Panduan Deployment ke Production (Vercel & Supabase)
+## Panduan Deployment ke Production (Vercel & Supabase)
 
 ### Langkah 1: Setup Database Cloud (Supabase / Neon.tech)
 1. Buat project PostgreSQL gratis di [Supabase](https://supabase.com) atau [Neon.tech](https://neon.tech).
@@ -116,7 +116,7 @@ Buka [http://localhost:3000](http://localhost:3000) pada browser Anda.
 
 ---
 
-## 📜 Lisensi & Penggunaan (License & Terms)
+## Lisensi & Penggunaan (License & Terms)
 
 Sistem ini dilindungi di bawah **Single-Company Enterprise License**. 
 - Diberikan hak penggunaan penuh untuk 1 organisasi / perusahaan.
